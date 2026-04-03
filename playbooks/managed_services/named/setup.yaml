@@ -1,0 +1,16 @@
+---
+- name: Playbook for dns installation
+  hosts: all
+  become: true
+  gather_facts: yes
+
+# Usage
+# ansible-playbook playbooks/managed_services/named/setup.yaml -i clients/2000/dns.ini
+
+  vars:
+    INSTALLATION: true
+
+  roles:
+    - common
+    - named
+

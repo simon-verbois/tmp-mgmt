@@ -1,0 +1,51 @@
+# roles/redhat_tomcat/tasks/configure/main.yaml
+
+---
+- name: "Copy required files and folders"
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    remote_src: "yes"
+    setype: "_default"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  become: yes
+  loop:
+    - { src: '/etc/systemd/system/tomcat.service', dest: '/etc/systemd/system/{{ __tomcat_service }}', owner: 'root', group: 'root', mode: '0644' }
+    - { src: '/opt/tomcat/apache-tomcat-{{ __tomcat_version }}', dest: '{{ __tomcat_root_dir }}/', owner: '{{ __tomcat_user }}', group: '{{ __tomcat_group }}', mode: 'u=rwX,g=rX,o=rX' }
+
+- name: "Custom /etc/systemd/system/{{ __tomcat_service }} configuration"
+  ansible.builtin.lineinfile:
+    path: "/etc/systemd/system/{{ __tomcat_service }}"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - "{ regexp: '/opt/tomcat', line: '{{ __tomcat_root_dir }}' }"
+    - "{ regexp: 'User=quartet_tomcat', line: 'User={{ __tomcat_user }}' }"
+    - "{ regexp: 'Group=quartet_tomcat', line: 'Group={{ __tomcat_group }}' }"
+  become: yes
+
+- name: Reload systemd daemon
+  ansible.builtin.command:
+    cmd: "systemctl daemon-reload"
+  become: yes
+
+- name: Ensure tomcat_pfin alternative is set
+  ansible.builtin.command: >
+    update-alternatives
+    --install
+    {{ __tomcat_root_dir }}/latest
+    {{ __tomcat_service | regexreplace('.service','') }}
+    {{ __tomcat_root_dir }}/apache-tomcat-{{ __tomcat_version }}
+    1
+  become: yes
+
+- name: "Ensure ownership and permissions for {{ __tomcat_root_dir }}"
+  ansible.builtin.file:
+    path: "{{ __tomcat_root_dir }}"
+    owner: "{{ __tomcat_user }}"
+    group: "{{ __tomcat_group }}"
+    mode: u=rwX,g=rX,o=rX
+    recurse: yes
+  become: yes

@@ -1,0 +1,10 @@
+# roles/squid/tasks/utils/clone_git_project.yaml
+
+---
+- name: Clone {{ client_id }} project in {{ working_dir }}
+  delegate_to: tower.csv.local
+  run_once: true
+  ansible.builtin.git:
+    repo: "https://{{ __gitlab_ictlas_user }}:{{ __gitlab_ictlas_token }}@{{ __gitlab_fqdn }}/ict-las/clients/{{ client_id }}.git"
+    dest: "{{ working_dir }}/{{ client_id }}"
+    update: yes

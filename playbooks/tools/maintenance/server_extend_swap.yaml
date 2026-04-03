@@ -1,0 +1,19 @@
+---
+- name: Maintenance - Extend the swap of a server (it add some storage if needed)
+  hosts: all
+  gather_facts: true
+  become: true
+
+# Usage
+# Step 1 - dry-run (no auth_token = automatic dry-run)
+# ansible-playbook playbooks/tools/maintenance/server_extend_swap.yaml -i sv-xxxxlvuxx.rh.xxxx.local, -e "requested_add_size_gb=1"
+
+# Step 2 - apply the change
+# ansible-playbook playbooks/tools/maintenance/server_extend_swap.yaml -i sv-xxxxlvuxx.rh.xxxx.local, -e "auth_token=XXXXXX requested_add_size_gb=1"
+
+  vars:
+    EXTEND_SWAP: true
+
+  roles:
+    - common
+    - tools

@@ -1,0 +1,20 @@
+# roles/tools/tasks/server_decommission/vcenter/main.yaml
+
+---
+- name: "VCENTER | Add vCenter header in result mail"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.5em;">vCenter</b>
+      </div>
+
+- name: "VCENTER | Loop on each vCenter"
+  ansible.builtin.include_tasks: delete_vm.yaml
+  loop: "{{ __vcenter_infos | dict2items }}"
+  loop_control:
+    loop_var: current_vcenter
+    label: "Sensitive data is hidden."
+  when: current_vcenter.value.enabled

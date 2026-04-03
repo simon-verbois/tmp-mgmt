@@ -1,0 +1,26 @@
+---
+- name: "Dynamic grouping based on limiter"
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: "Add host to execution group if it matches limiter"
+      ansible.builtin.group_by:
+        key: "execution_group"
+      when: limiter is not defined or limiter == inventory_hostname
+      tags: ["always"]
+
+- name: Playbook for Hashicorp Vault
+  hosts: execution_group
+  gather_facts: true
+
+# Usage
+# ansible-playbook playbooks/managed_services/hashicorp_vault/unseal.yaml -i clients/XXXX/hosts.ini
+# ansible-playbook playbooks/managed_services/hashicorp_vault/unseal.yaml -i clients/XXXX/hosts.ini -e "limiter=sv-xxxxlvuxx.rh.xxxx.local"
+
+  vars:
+    HASHICORP_VAULT_UNSEAL: true
+
+  roles:
+    - common
+    - hashicorp_vault
+    

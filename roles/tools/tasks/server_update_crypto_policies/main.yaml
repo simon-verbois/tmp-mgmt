@@ -1,0 +1,65 @@
+# roles/tools/tasks/server_update_crypto_policies/main.yaml
+
+---
+- name: Load update_crypto_policies vars
+  ansible.builtin.include_vars:
+    file: "update_crypto_policies.yaml"
+
+- name: Assert __new_crypto_policy is defined and valid
+  ansible.builtin.assert:
+    that:
+      - __new_crypto_policy is defined
+      - __new_crypto_policy | length > 0
+      - __new_crypto_policy in ['DEFAULT', 'FUTURE', 'FIPS', 'LEGACY', 'BSI']
+    fail_msg: "__new_crypto_policy must be defined and set to a valid crypto policy"
+
+- name: Define report_path
+  ansible.builtin.set_fact:
+    report_path: "{{ (role_path + '/../../export') | realpath }}"
+  run_once: true
+
+- name: Ensure export directory exists
+  ansible.builtin.file:
+    path: "{{ report_path }}"
+    state: directory
+    mode: '0755'
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Get current crypto policy
+  ansible.builtin.command:
+    cmd: update-crypto-policies --show
+  register: current_crypto_policy
+  changed_when: false
+
+- name: Set system-wide crypto policy to {{ __new_crypto_policy }}
+  ansible.builtin.command:
+    cmd: update-crypto-policies --set {{ __new_crypto_policy }}
+  register: crypto_policy_result
+  changed_when: "'Setting system policy to {{ __new_crypto_policy }}' in crypto_policy_result.stdout"
+  when: current_crypto_policy.stdout != __new_crypto_policy
+  notify: Restart sshd
+
+- name: Build CSV report line for {{ inventory_hostname }}
+  ansible.builtin.set_fact:
+    crypto_policy_report_line: >-
+      {{ inventory_hostname }},{{ current_crypto_policy.stdout }},{{ __new_crypto_policy }},{{ '%Y-%m-%d %H:%M:%S' | strftime }}
+
+- name: Ensure CSV report exists with header
+  ansible.builtin.lineinfile:
+    path: "{{ report_path }}/crypto_policy_{{ '%Y%m%d_%H%M' | strftime }}.csv"
+    line: "hostname,policy_before,policy_after,timestamp"
+    create: true
+    insertbefore: BOF
+    mode: '0644'
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Append host result to CSV report
+  ansible.builtin.lineinfile:
+    path: "{{ report_path }}/crypto_policy_{{ '%Y%m%d_%H%M' | strftime }}.csv"
+    line: "{{ crypto_policy_report_line }}"
+  delegate_to: localhost
+  become: false

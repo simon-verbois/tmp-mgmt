@@ -1,0 +1,22 @@
+# roles/hashicorp_vault/tasks/unsealing/00_main.yaml
+
+---
+- block:
+  - name: "Check Vault sealing status"
+    ansible.builtin.uri:
+      url: "https://{{ inventory_hostname }}:8200/v1/sys/seal-status"
+      method: GET
+      validate_certs: false
+    register: vault_status
+
+  rescue:
+  - name: A critical error occurred during the unseal process
+    ansible.builtin.fail:
+      msg: "The unseal process was interrupted by an unexpected error: {{ ansible_failed_result }}"
+  when: limiter is not defined or limiter == inventory_hostname
+
+- name: Include unsealing tasks if the vault is sealed 
+  ansible.builtin.include_tasks: 01_unseal.yaml
+  when:
+    - vault_status is succeeded
+    - vault_status.json.sealed | default(false)

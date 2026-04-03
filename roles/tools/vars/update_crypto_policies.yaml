@@ -1,0 +1,4 @@
+# roles/tools/vars/update_crypto_policies.yaml
+
+---
+__new_crypto_policy : 'FUTURE'

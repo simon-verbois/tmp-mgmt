@@ -1,0 +1,14 @@
+---
+- name: Playbook to remove Splunk forwarder
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/splunk_forwarder/remove.yaml -i clients/XXXX/hosts.ini -l sv-xxxxlvuxx.rh.xxxx.local
+
+  vars:
+    REMOVE_SPLUNK_FORWARDER: true
+
+  roles:
+    - common
+    - splunk_forwarder

@@ -1,0 +1,40 @@
+# roles/tools/tasks/server_extend_lvm_volume/checks/verify_token.yaml
+
+---
+- name: "TOKEN | Ensure 'auth_token' is provided"
+  ansible.builtin.assert:
+    that: auth_token is defined
+    fail_msg: "You must run the dry-run first to generate an authorization token."
+
+- name: "TOKEN | Read token payload on target server"
+  ansible.builtin.slurp:
+    src: "/tmp/disk_extension_token.json"
+  become: true
+  register: remote_token_file
+  ignore_errors: true
+
+- name: "TOKEN | Fail if token file is missing"
+  ansible.builtin.fail:
+    msg: "No token found on the server. Run the dry-run again."
+  when: remote_token_file.failed
+
+- name: "TOKEN | Parse token payload"
+  ansible.builtin.set_fact:
+    token_payload: "{{ remote_token_file['content'] | b64decode | from_json }}"
+
+- name: "TOKEN | Verify token and parameters match"
+  ansible.builtin.assert:
+    that:
+      - token_payload.token == auth_token
+      - token_payload.target_path == target_path
+      - token_payload.requested_add_size_gb | string == requested_add_size_gb | string
+    fail_msg: >-
+      Token validation failed. Either the token is wrong or parameters changed since the dry-run.
+      Expected: token={{ token_payload.token }}, path={{ token_payload.target_path }}, size={{ token_payload.requested_add_size_gb }}GB.
+      Received: token={{ auth_token }}, path={{ target_path }}, size={{ requested_add_size_gb }}GB.
+
+- name: "TOKEN | Consume token"
+  ansible.builtin.file:
+    path: "/tmp/disk_extension_token.json"
+    state: absent
+  become: true

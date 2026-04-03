@@ -1,0 +1,15 @@
+# roles/automation/tasks/create_client_repo_on_git/collecting/gitlab_repositories.yaml
+
+---
+- name: "COLLECTING | List all projects in GitLab group ict-las/clients"
+  ansible.builtin.uri:
+    url: "https://{{ __gitlab_fqdn }}/api/v4/groups/ict-las%2Fclients/projects?include_subgroups=true&per_page=1000"
+    method: GET
+    validate_certs: no
+    headers:
+      PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+  register: gitlab_projects_response
+
+- name: "COLLECTING | Build gitlab_repositories_list"
+  ansible.builtin.set_fact:
+    gitlab_repositories_list: "{{ gitlab_projects_response.json | default([]) | json_query('[].name') }}"

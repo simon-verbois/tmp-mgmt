@@ -1,0 +1,107 @@
+# roles/tools/tasks/server_diagnostic/tests/services.yaml
+
+---
+- name: "Add Services header"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.3em;">Systemd Services</b>
+      </div>
+
+- block:
+    - name: Get failed systemd services
+      ansible.builtin.shell: >
+        systemctl list-units --state=failed --no-legend --no-pager --plain
+        | awk '{print $1";"$2";"$3";"$4}'
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: failed_services
+      changed_when: false
+
+    - name: Define services status properties
+      ansible.builtin.set_fact:
+        has_failed_services: "{{ failed_services.stdout_lines | length > 0 }}"
+        services_status_color: "{{ '#d9534f' if failed_services.stdout_lines | length > 0 else '#5cb85c' }}"
+        services_status_label: "{{ 'CRITICAL' if failed_services.stdout_lines | length > 0 else 'OK' }}"
+        services_status_message: >-
+          {{ 'One or more systemd services are in a failed state.' if failed_services.stdout_lines | length > 0
+             else 'All monitored services are running normally.' }}
+
+    - name: Add Services Status Summary Box
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid {{ services_status_color }}; padding: 10px; border-radius: 5px; background-color: {{ services_status_color }}05; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em; font-family: sans-serif;">
+            <div style="text-align: center; margin-bottom: 8px;">
+              <b style="font-size: 1.1em; color: {{ services_status_color }}; text-transform: uppercase;">Status: {{ services_status_label }}</b><br>
+              <span style="color: #555;">{{ services_status_message }}</span>
+            </div>
+
+            <div style="padding: 5px 10px; border-radius: 3px;">
+              <b style="font-size: 0.85em; color: #333;">Support Checklist:</b><br>
+              <span style="font-size: 0.85em;">
+                {{ '❌' if has_failed_services else '✅' }} Failed services check
+                {% if has_failed_services %}
+                <span style="color: #d9534f;">({{ failed_services.stdout_lines | length }} failed)</span>
+                {% endif %}
+              </span>
+            </div>
+          </div>
+
+    - name: Add Services Table to mail
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <table>
+            <tr style="background-color: #e0e0e0;">
+              <th colspan="4" style="padding: 10px; text-align: center; font-size: 1.1em;">Failed Services</th>
+            </tr>
+            {% if has_failed_services %}
+            <tr style="background-color: #f5f5f5; font-size: 0.9em;">
+              <th>Unit</th>
+              <th>Load</th>
+              <th>Active/Sub</th>
+              <th>Responsibility</th>
+            </tr>
+            {% for line in failed_services.stdout_lines %}
+            {% set cells = line.split(';') %}
+            {% set svc_name = cells[0] | regex_replace('\\.service$|\\.socket$|\\.timer$|\\.mount$', '') %}
+            {% if svc_name in __rhel_services_list %}
+              {% set resp = 'Managed (ict-linux)' %}
+              {% set resp_color = '#5bc0de' %}
+            {% elif svc_name in __rhel_shared_services_list %}
+              {% set resp = 'Shared Responsibility' %}
+              {% set resp_color = '#f0ad4e' %}
+            {% else %}
+              {% set resp = 'Customer Service / Application' %}
+              {% set resp_color = '#777' %}
+            {% endif %}
+            <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
+              <td style="padding: 8px; border: 1px solid #eee; font-family: monospace; font-size: 0.85em;">{{ cells[0] }}</td>
+              <td style="padding: 8px; border: 1px solid #eee;">{{ cells[1] | default('-') }}</td>
+              <td style="padding: 8px; border: 1px solid #eee; color: #d9534f; font-weight: bold;">
+                {{ cells[2] | default('-') }}/{{ cells[3] | default('-') }}
+              </td>
+              <td style="padding: 8px; border: 1px solid #eee; color: {{ resp_color }}; font-weight: bold;">{{ resp }}</td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="4" style="padding: 15px; text-align: center; color: #5cb85c; background-color: #ffffff;">
+                ✅ No failed services detected.
+              </td>
+            </tr>
+            {% endif %}
+          </table>
+
+  rescue:
+    - name: Add Services fallback to mail
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid #d9534f; padding: 10px; text-align: center; width: 95%; margin: 0 auto; font-size: 0.9em;">
+            <b style="color: #d9534f;">⚠️ ERROR: Could not collect systemd service metrics.</b>
+          </div>

@@ -1,0 +1,31 @@
+# roles/automation/tasks/sync_git_client_repo_to_aap/collecting/gitlab_repositories.yaml
+
+---
+- block:
+    - name: "COLLECTING | List all projects in GitLab group ict-las/clients"
+      ansible.builtin.uri:
+        url: "https://{{ __gitlab_fqdn }}/api/v4/groups/ict-las%2Fclients/projects?include_subgroups=true&per_page=100"
+        method: GET
+        validate_certs: no
+        headers:
+          PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+        status_code: 200
+      register: gitlab_projects_response
+
+    - name: "COLLECTING | Parse and Clean Gitlab API result output"
+      ansible.builtin.set_fact:
+        gitlab_repositories_list: "{{ gitlab_projects_response.json | json_query('[].{name: name, http_url: http_url_to_repo, default_branch: default_branch}') }}"
+      failed_when: gitlab_repositories_list is not defined or (gitlab_repositories_list | type_debug != 'list')
+
+  rescue:
+    - name: "ERROR | Log GitLab API Global Failure"
+      ansible.builtin.debug:
+        msg: "CRITICAL: Impossible de récupérer la liste des projets GitLab. Erreur: {{ ansible_failed_result.msg | default('Unknown') }}"
+
+    - name: "ERROR | Set empty list to prevent playbook crash"
+      ansible.builtin.set_fact:
+        gitlab_repositories_list: []
+
+    - name: "REPORTING | Add Global Failure to reporting list"
+      ansible.builtin.set_fact:
+        problematic_repos: "{{ problematic_repos + ['CRITICAL_ERROR: GitLab API Unreachable - No clients processed'] }}"

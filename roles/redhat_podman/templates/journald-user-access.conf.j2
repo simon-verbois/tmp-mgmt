@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+# Configuration journald sécurisée pour accès utilisateur restreint
+
+[Journal]
+# Configuration du stockage
+Storage={{ podman_journald_config.Storage | default('persistent') }}
+Compress={{ podman_journald_config.Compress | default('yes') }}
+SplitMode={{ podman_journald_config.SplitMode | default('uid') }}
+
+# Restrictions sécurisées
+ReadKMsg=no
+ForwardToSyslog=no
+
+# Limites de taille
+SystemMaxUse={{ podman_journald_config.SystemMaxUse | default('2G') }}
+SystemKeepFree={{ podman_journald_config.SystemKeepFree | default('1G') }}
+SystemMaxFileSize={{ podman_journald_config.SystemMaxFileSize | default('64M') }}
+RuntimeMaxUse={{ podman_journald_config.RuntimeMaxUse | default('512M') }}
+RuntimeKeepFree={{ podman_journald_config.RuntimeKeepFree | default('128M') }}
+RuntimeMaxFileSize={{ podman_journald_config.RuntimeMaxFileSize | default('32M') }}
+
+# Rétention
+MaxRetentionSec={{ podman_journald_config.MaxRetentionSec | default('2weeks') }}
+MaxFileSec={{ podman_journald_config.MaxFileSec | default('1week') }}
+
+# Séparation stricte par utilisateur pour sécurité  MaxLevelStore=info

@@ -1,0 +1,13 @@
+---
+- name: Maintenance - Repair and optimize RPM database
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/tools/maintenance/rpm_db_fix.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    RPM_DB_FIX: true
+
+  roles:
+    - tools

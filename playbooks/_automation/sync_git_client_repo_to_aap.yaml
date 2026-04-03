@@ -1,0 +1,15 @@
+---
+- name: Automation - Sync client git project to aap
+  hosts: localhost
+  gather_facts: no
+
+# Usage
+# ansible-playbook playbooks/_automation/sync_git_client_repo_to_aap.yaml
+
+  vars:
+    SYNC_CLIENT_REPO_TO_AAP: true
+
+  roles:
+    - common
+    - automation
+    

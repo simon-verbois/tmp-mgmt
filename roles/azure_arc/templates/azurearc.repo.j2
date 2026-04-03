@@ -1,0 +1,12 @@
+#################################################################
+##    Ansible managed (refer to Linux Automation Framework)    ##
+##             Your change will be overwritten!!               ##
+#################################################################
+
+[azurearc]
+name = Azure Arc
+baseurl = {{ __azurearc_repo_url }}
+gpgcheck = {{ 1 if __azurearc_repo_gpgkey else 0 }}
+{% if __azurearc_repo_gpgkey %}
+gpgkey = {{ __azurearc_repo_gpgkey }}
+{% endif %}

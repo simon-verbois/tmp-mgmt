@@ -1,0 +1,9 @@
+# roles/elastic_agent/tasks/utils/clean_working_dir.yaml
+
+---
+- name: Delete {{ working_dir }}
+  delegate_to: tower.csv.local
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    state: absent
+    force: true

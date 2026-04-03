@@ -1,0 +1,84 @@
+# roles/common/vars/mailing.yaml
+
+---
+__mail_from: "ict.linux@ebrc.com"
+__mail_to: 
+  - "linux.support@deep.eu"
+__mail_header: |-
+  <style>
+    body, p, div, td, th, span, b, u {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #333;
+    }
+    
+    table { 
+      border-collapse: separate; 
+      border-spacing: 0;
+      width: 95%; 
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      margin-left: auto;
+      margin-right: auto;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    th, td { 
+      border-right: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
+      padding: 8px; 
+      text-align: left; 
+    }
+
+    th:last-child, td:last-child {
+      border-right: none;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+  </style>
+  <br>
+  <br>
+  <table role="presentation" style="width: 100%; border-collapse: separate; border-spacing: 0; clear: both; margin-bottom: 10px; border: 1px solid #333; border-radius: 5px; background-color: #f9f9f9;">
+    <tr>
+      <td style="padding: 8px; text-align: center;">
+        <b style="font-size: 1.3em; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333;">Job Informations</b>
+      </td>
+    </tr>
+  </table>
+
+  <div style="border: 1px solid #333; padding: 10px; border-radius: 5px; background-color: #f9f9f9; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em; font-family: sans-serif; clear: both;">
+    <div style="text-align: center; margin-bottom: 8px;">
+      <b style="font-size: 1.1em; color: #333; text-transform: uppercase;">Execution Context</b><br>
+      <span style="color: #555;">Traceability and request details</span>
+    </div>
+    
+    <div style="margin-bottom: 4px; padding: 5px 10px; background-color: #f9f9f9; border-radius: 3px;">
+      <b style="font-size: 0.85em; color: #333;">Request Details:</b><br>
+      <span style="font-size: 0.85em;">
+        👤 <b>User:</b> {{ tower_user_name | default(lookup('env', 'USER')) | default('None') }}<br>
+        📄 <b>Playbook:</b> {{ ansible_play_name }}<br>
+        {% if __snow_incident_id is defined and __snow_incident_id %}
+        🎫 <b>Ticket (Snow):</b> <a href="https://portal.trustedcloudeurope.com/incident.do?sysparm_query=number={{ __snow_incident_id }}" style="color: #337ab7; text-decoration: none; font-weight: bold;">{{ __snow_incident_id }}</a>
+        {% endif %}
+        {% if __snow_ritm_id is defined and __snow_ritm_id %}
+        🎫 <b>Ticket (Snow):</b> <a href="https://portal.trustedcloudeurope.com/sc_req_item.do?sysparm_query=number={{ __snow_ritm_id }}" style="color: #337ab7; text-decoration: none; font-weight: bold;">{{ __snow_ritm_id }}</a>
+        {% endif %}
+      </span>
+    </div>
+
+    {% if tower_job_id is defined and tower_job_id %}
+    <div style="text-align: right; margin: 0; padding: 0;">
+      <a href="https://tower.csv.local/#/jobs/playbook/{{ tower_job_id }}" 
+          style="background-color: #333; color: white; padding: 4px 10px; text-decoration: none; border-radius: 3px; font-size: 0.75em; font-weight: bold; display: inline-block; vertical-align: middle;">
+          VIEW ON TOWER
+      </a>
+    </div>
+    {% endif %}
+
+    <div style="border-top: 1px dashed #ccc; padding-top: 5px; margin-top: 4px; font-size: 0.8em; color: #666; text-align: center;">
+      <b>Date:</b> {{ lookup('pipe', 'date +%Y-%m-%d') }} | 
+      <b>Time:</b> {{ lookup('pipe', 'date +%H:%M:%S') }}
+    </div>
+  </div>

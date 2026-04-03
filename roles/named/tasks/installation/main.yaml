@@ -1,0 +1,29 @@
+# roles/named/tasks/installation/main.yaml
+
+---
+- name: Install required packages
+  ansible.builtin.yum:
+    name: "{{ __packages }}"
+    state: present
+
+- name: Ensure named is started and enabled
+  ansible.builtin.service:
+    name: named
+    state: started
+    enabled: true
+
+- name: Get /var partition statistics
+  ansible.builtin.shell: set -o pipefail && df -h /var | awk 'NR==2 {print $3, $5}' | tr -d '%'
+  args:
+    executable: /bin/bash
+  register: var_disk_stats
+  changed_when: false
+
+- name: Report /var partition usage
+  ansible.builtin.debug:
+    msg: "The /var partition currently uses {{ var_disk_stats.stdout.split()[0] }} of space ({{ var_disk_stats.stdout.split()[1] }}%)."
+
+- name: Warn if /var is over 70% capacity
+  ansible.builtin.debug:
+    msg: "WARNING: The /var partition is over 70% full (currently at {{ var_disk_stats.stdout.split()[1] }}%). You should consider extending it."
+  when: var_disk_stats.stdout.split()[1] | int > 70

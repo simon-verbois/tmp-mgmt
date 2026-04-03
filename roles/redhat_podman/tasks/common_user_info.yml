@@ -1,0 +1,25 @@
+# roles/redhat_podman/tasks/common_user_info.yml
+
+---
+- name: "COMMON | Ensure podman service account info is available"
+  block:
+    - name: "COMMON | Get user info (fallback for tags or check-mode)"
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ podman_service_account_name }}"
+      when: user_creation_result is not defined or user_creation_result.home is not defined
+
+    - name: "COMMON | Set standardized user facts"
+      ansible.builtin.set_fact:
+        podman_user_fact:
+          name: "{{ podman_service_account_name }}"
+          # getent_passwd returns [pwd, uid, gid, gecos, home, shell]
+          # Si user.yml a tourné (et pas en check-mode), on utilise user_creation_result, sinon on prend le getent
+          uid: "{{ user_creation_result.uid if (user_creation_result is defined and user_creation_result.uid is defined) else ansible_facts.getent_passwd[podman_service_account_name][1] }}"
+          gid: "{{ user_creation_result.group if (user_creation_result is defined and user_creation_result.group is defined) else ansible_facts.getent_passwd[podman_service_account_name][2] }}"
+          home: "{{ user_creation_result.home if (user_creation_result is defined and user_creation_result.home is defined) else ansible_facts.getent_passwd[podman_service_account_name][4] }}"
+
+    - name: "COMMON | Set podman_user_home compatibility variable"
+      ansible.builtin.set_fact:
+        podman_user_home: "{{ podman_user_fact.home }}"
+      when: podman_user_home is not defined

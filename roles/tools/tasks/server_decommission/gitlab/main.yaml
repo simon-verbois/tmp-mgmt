@@ -1,0 +1,48 @@
+# roles/tools/tasks/server_decommission/gitlab/main.yaml
+
+---
+- name: "GITLAB | Initialize lists"
+  ansible.builtin.set_fact:
+    gitlab_all_projects_list: "{{ __gitlab_projects_list }}"
+
+- name: "GITLAB | Add GitLab header in result mail"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.5em;">Gitlab (manual step)</b>
+      </div>
+      <i>You must delete or clean these files manually.</i><br>
+
+- name: "GITLAB | Search client project ID"
+  block:
+    - name: "GITLAB | Search client project ID on GitLab"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "https://{{ __gitlab_fqdn }}/api/v4/search?scope=projects&search={{ client_id }}"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+      register: client_project_list
+
+    - name: "GITLAB | Add client project ID and url in gitlab_all_projects_list"
+      ansible.builtin.set_fact:
+        gitlab_all_projects_list: "{{ gitlab_all_projects_list | combine({ match.name: {'url': (match.http_url_to_repo | regex_replace('^(https?://[^/]+/)(.*)\\.git$', '\\1-/ide/project/\\2/edit/master/-')), 'id': match.id, 'group': 'ict-las'} }) }}"
+      loop: "{{ client_project_list.json }}"
+      loop_control:
+        loop_var: match
+      when:
+        - "'clients' in match.http_url_to_repo"
+
+- name: "GITLAB | Clean duplicate values"
+  ansible.builtin.set_fact:
+    unique_projects_list: "{{ gitlab_all_projects_list | dict2items | unique(attribute='value.id') | list }}"
+
+- name: "GITLAB | Loop on each included GitLab project"
+  ansible.builtin.include_tasks: search_project.yaml
+  loop: "{{ unique_projects_list }}"
+  loop_control:
+    loop_var: project
+    label: "Sensitive data is hidden."

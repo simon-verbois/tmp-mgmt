@@ -1,0 +1,159 @@
+# roles/redhat_podman/tasks/user.yml
+
+---
+- name: Determine home directory path
+  ansible.builtin.set_fact:
+    podman_user_home: "{{ (podman_mountpoints[0].mount_path) if podman_mountpoints is defined and podman_mountpoints else '/home/' + podman_service_account_name }}"
+
+- name: Create a service account for Podman
+  ansible.builtin.user:
+    name: "{{ podman_service_account_name }}"
+    state: present
+    home: "{{ podman_user_home }}"
+    create_home: yes
+    shell: "{{ podman_service_account_shell }}"
+    comment: "Podman service account"
+    expires: -1
+    password_lock: yes
+  register: user_creation_result
+
+- name: Set user facts (check-mode safe)
+  ansible.builtin.set_fact:
+    _podman_user_home: "{{ user_creation_result.home | default(podman_user_home) }}"
+    _podman_user_name: "{{ user_creation_result.name | default(podman_service_account_name) }}"
+    _podman_user_group: "{{ user_creation_result.group | default(podman_service_account_name) }}"
+    _podman_user_uid: "{{ user_creation_result.uid | default('') }}"
+
+- name: Disable password expiration for service account
+  ansible.builtin.command: chage -M -1 {{ podman_service_account_name }}
+  changed_when: false
+
+# Rootless : subuid/subgid requis pour RHEL 7, bonne pratique sur 8/9
+- name: Ensure subuid entry exists for service account
+  ansible.builtin.lineinfile:
+    path: /etc/subuid
+    regexp: "^{{ podman_service_account_name }}:"
+    line: "{{ podman_service_account_name }}:100000:65536"
+    create: yes
+    mode: '0644'
+
+- name: Ensure subgid entry exists for service account
+  ansible.builtin.lineinfile:
+    path: /etc/subgid
+    regexp: "^{{ podman_service_account_name }}:"
+    line: "{{ podman_service_account_name }}:100000:65536"
+    create: yes
+    mode: '0644'
+
+- name: Check if .bashrc exists
+  ansible.builtin.stat:
+    path: "{{ _podman_user_home }}/.bashrc"
+  register: bashrc_stat
+
+- name: Copy skeleton files if needed
+  ansible.builtin.shell: cp -rn /etc/skel/. "{{ _podman_user_home }}/"
+  when: not bashrc_stat.stat.exists
+
+# --- CORRECTIF 1 : Correction ciblée des fichiers de config shell ---
+- name: Ensure correct ownership of shell configuration files
+  ansible.builtin.file:
+    path: "{{ _podman_user_home }}/{{ item }}"
+    owner: "{{ _podman_user_name }}"
+    group: "{{ _podman_user_group }}"
+    mode: '0644'
+  loop:
+    - .bash_profile
+    - .bash_logout
+    - .bashrc
+  ignore_errors: true
+
+# --- CORRECTIF 2 : Sécurisation du dossier home (SANS RECURSIVITÉ) ---
+- name: Ensure home directory ownership (root only)
+  ansible.builtin.file:
+    path: "{{ _podman_user_home }}"
+    owner: "{{ _podman_user_name }}"
+    group: "{{ _podman_user_group }}"
+    state: directory
+    recurse: no  # CRITIQUE : Doit être à 'no' pour ne pas corrompre le stockage Podman
+
+# RHEL 7 : pas de loginctl enable-linger, créer le XDG_RUNTIME_DIR manuellement
+- name: Create XDG_RUNTIME_DIR for service account (RHEL 7)
+  ansible.builtin.file:
+    path: "/run/user/{{ _podman_user_uid }}"
+    state: directory
+    owner: "{{ _podman_user_name }}"
+    group: "{{ _podman_user_group }}"
+    mode: '0700'
+  when:
+    - ansible_distribution_major_version == '7'
+    - _podman_user_uid | default('') | length > 0
+
+# RHEL 7 : s'assurer que le runtime dir est recréé au boot via tmpfiles.d
+- name: Ensure XDG_RUNTIME_DIR persists across reboots (RHEL 7)
+  ansible.builtin.copy:
+    content: "d /run/user/{{ _podman_user_uid }} 0700 {{ _podman_user_name }} {{ _podman_user_group }} -\n"
+    dest: "/etc/tmpfiles.d/podman-{{ podman_service_account_name }}.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - ansible_distribution_major_version == '7'
+    - _podman_user_uid | default('') | length > 0
+
+- name: Enable linger for the service account (RHEL 8+)
+  ansible.builtin.command: "loginctl enable-linger {{ podman_service_account_name }}"
+  register: linger_result
+  changed_when: linger_result.rc == 0
+  failed_when: linger_result.rc not in [0, 1]
+  when: ansible_distribution_major_version | int >= 8
+
+- name: Configure .bashrc for Podman environment
+  ansible.builtin.blockinfile:
+    path: "{{ _podman_user_home }}/.bashrc"
+    block: |
+      # Podman and systemd user session environment
+      export XDG_RUNTIME_DIR=/run/user/$(id -u)
+      export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+      export PATH="$HOME/bin:$PATH"
+
+      # Optional: Podman aliases
+      alias pd='podman'
+      alias pdi='podman images'
+      alias pdps='podman ps'
+      alias pdpsa='podman ps -a'
+
+      # Journal access aliases (USER SERVICES ONLY - sécurisé)
+      {% if podman_configure_journal_access | default(true) %}
+      alias logs-user='journalctl --user'
+      alias logs-follow='journalctl --user -f'
+      alias logs='~/bin/logs'
+      # Note: Pas d'accès système pour sécurité        {% endif %}
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Podman environment"
+    create: true
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ _podman_user_group }}"
+    mode: '0644'
+
+- name: Deploy bash completion script
+  ansible.builtin.template:
+    src: podman_completion.sh.j2
+    dest: "{{ _podman_user_home }}/.bashrc.d/podman_completion.sh"
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ _podman_user_group }}"
+    mode: '0644'
+  when: false  # Disabled unless .bashrc.d directory structure is set up
+
+- name: Initialize Podman for service account
+  ansible.builtin.command: sudo -u {{ podman_service_account_name }} -i podman info
+  register: podman_init
+  failed_when: false
+  changed_when: false
+
+- name: Store user information for other tasks
+  ansible.builtin.set_fact:
+    podman_user_info:
+      name: "{{ _podman_user_name }}"
+      home: "{{ _podman_user_home }}"
+      uid: "{{ _podman_user_uid }}"
+      group: "{{ _podman_user_group }}"
+    cacheable: yes

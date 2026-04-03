@@ -1,0 +1,42 @@
+# roles/redhat_idm/tasks/manage/users/creation/03_create_user.yaml
+
+---
+- block:
+  - name: Create IPA user {{ username }} on {{ ipa_server }}
+    delegate_to: "{{ ipa_server }}"
+    redhat.rhel_idm.ipauser:
+      name: "{{ username }}"
+      first: "{{ user_firstname }}"
+      last: "{{ user_lastname }}"
+      email: "{{ user_mail }}"
+      homedir: "{{ user_homefolder }}"
+      shell: "{{ user_shell }}"
+      password: "{{ generated_password }}"
+      passwordexpiration: "{{ final_expiration | default(omit, true) }}"
+      update_password: on_create
+      state: present
+      ipaadmin_principal: "{{ ipa_user }}"
+      ipaadmin_password: "{{ ipa_pass }}"
+    register: user_creation_result
+
+  - name: Update mail_content based on creation status
+    ansible.builtin.set_fact:
+      mail_content: |
+        {{ mail_content }}
+        {% if user_creation_result.changed %}
+        The {{ username }} user has been correctly created.<br>
+        {% else %}
+        <b>The user was not created, because it probably already exists.</b><br>
+        {% endif %}
+
+  rescue:
+  - name: Fill mail_content with error message
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        <b>An error occur when we try to create the user {{ username | default('username-var') }} on {{ ipa_server | default('ipa_server-var') }}.</b><br>
+        <br>
+        Error message:<br>
+          <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
+          {{ user_creation_result.msg | default(['No msg captured']) }}
+          </pre>

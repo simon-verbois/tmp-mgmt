@@ -1,0 +1,8 @@
+# roles/tools/tasks/server_tweaks/main.yaml
+
+---
+- name: Include motd tasks
+  ansible.builtin.include_tasks: motd/00_main.yaml
+
+- name: Include ps1 tasks
+  ansible.builtin.include_tasks: ps1/00_main.yaml

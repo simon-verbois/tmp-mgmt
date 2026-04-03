@@ -1,0 +1,14 @@
+# roles/tools/tasks/server_add_cpu/vcenter/00_main.yaml
+
+---
+- name: "VCENTER | Reset loop breaker"
+  ansible.builtin.set_fact:
+    vcenter_action_done: false
+
+- name: "VCENTER | Loop on each vCenter to {{ vcenter_action | upper }}"
+  ansible.builtin.include_tasks:
+    file: "{{ (vcenter_action == 'get_cpu_info') | ternary('get_cpu_info.yaml', 'extend_cpu.yaml') }}"
+  loop: "{{ __vcenter_infos | dict2items }}"
+  loop_control:
+    loop_var: current_vcenter
+    label: "Sensitive data is hidden."

@@ -1,0 +1,50 @@
+# roles/tools/tasks/server_extend_lvm_volume/checks/check_datastore_space.yaml
+
+---
+- name: "DATASTORE | Get datastore info for {{ matched_vm_disks[0].value.backing_datastore }}"
+  delegate_to: localhost
+  become: false
+  community.vmware.vmware_datastore_info:
+    hostname: "{{ vcenter_conn.hostname }}"
+    username: "{{ vcenter_conn.username }}"
+    password: "{{ vcenter_conn.password }}"
+    validate_certs: false
+    datacenter: "{{ vcenter_conn.datacenter }}"
+    name: "{{ matched_vm_disks[0].value.backing_datastore }}"
+  register: datastore_info_raw
+  ignore_errors: true
+
+- name: "DATASTORE | Set error if query failed"
+  ansible.builtin.set_fact:
+    datastore_error: "Could not retrieve datastore information."
+  when: datastore_info_raw.failed | default(false) or datastore_info_raw.datastores | default([]) | length == 0
+
+- name: "DATASTORE | Parse datastore capacity"
+  ansible.builtin.set_fact:
+    datastore_info:
+      name: "{{ datastore_info_raw.datastores[0].name }}"
+      capacity_gb: "{{ (datastore_info_raw.datastores[0].capacity | float / 1073741824) | round(2) }}"
+      freeSpace_gb: "{{ (datastore_info_raw.datastores[0].freeSpace | float / 1073741824) | round(2) }}"
+      type: "{{ datastore_info_raw.datastores[0].type | default('N/A') }}"
+  when: datastore_error is not defined
+
+- name: "DATASTORE | Check remaining space after extension ({{ datastore_min_free_pct | default(5) }}% threshold)"
+  vars:
+    _threshold: "{{ datastore_min_free_pct | default(5) | float }}"
+    _free_after_gb: "{{ datastore_info.freeSpace_gb | float - vcenter_disk_add_gb | float }}"
+    _free_after_pct: "{{ ((_free_after_gb | float) / (datastore_info.capacity_gb | float) * 100) | round(2) }}"
+  ansible.builtin.set_fact:
+    datastore_info: "{{ datastore_info | combine({'freeSpace_after_gb': _free_after_gb | float | round(2), 'freeSpace_after_pct': _free_after_pct | float | round(2)}) }}"
+    datastore_error: "Datastore would drop below {{ _threshold }}% free"
+  when:
+    - datastore_error is not defined
+    - ((_free_after_gb | float) / (datastore_info.capacity_gb | float) * 100) < _threshold | float
+
+- name: "DATASTORE | Store remaining space (above threshold)"
+  vars:
+    _free_after_gb: "{{ datastore_info.freeSpace_gb | float - vcenter_disk_add_gb | float }}"
+    _free_after_pct: "{{ ((_free_after_gb | float) / (datastore_info.capacity_gb | float) * 100) | round(2) }}"
+  ansible.builtin.set_fact:
+    datastore_info: "{{ datastore_info | combine({'freeSpace_after_gb': _free_after_gb | float | round(2), 'freeSpace_after_pct': _free_after_pct | float | round(2)}) }}"
+  when:
+    - datastore_error is not defined

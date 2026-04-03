@@ -1,0 +1,54 @@
+# roles/setup_nnt/tasks/installation/main.yaml
+
+---
+- name: Tranfert NNT templates files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: 0644
+  loop:
+    - {src: "nnt.repo.j2", dest: "/etc/yum.repos.d/nnt.repo"}
+    - {src: "nnt-changetracker-gen7agent.service.j2", dest: "/etc/systemd/system/nntgen7agentcore.service"}
+
+- name: Reload systemd daemon
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Install nnt-changetracker-gen7agent
+  ansible.builtin.dnf:
+    name: "{{ __nnt_package }}"
+    disable_gpg_check: true
+    state: latest
+    update_cache: true
+  when: ansible_facts['distribution_major_version'] | int >= 8
+
+- name: Install nnt-changetracker-gen7agent
+  ansible.builtin.yum:
+    name: "{{ __nnt_package }}"
+    state: latest
+    disable_gpg_check: true
+    update_cache: true
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: Configure gen7agent
+  ansible.builtin.command:
+  args:
+    creates: "{{ __nnt_hubdetails_loc }}/HubDetails.xml"
+    argv:
+      - "{{ __nnt_agent_cfgscript }}"
+      - "{{ __nnt_hub_host }}"
+      - "{{ __nnt_agent_user }}"
+      - "{{ __nnt_agent_pwd }}"
+      - "{{ __nnt_agent_path }}"
+      - "{{ __nnt_agent_prefix }}"
+      - "{{ __nnt_agent_suffix }}"
+      - "{{ __nnt_agent_thumbprint }}"
+
+- name: "Start and enable {{ __nnt_service }} service"
+  ansible.builtin.service:
+    name: "{{ __nnt_service }}"
+    enabled: true
+    state: started

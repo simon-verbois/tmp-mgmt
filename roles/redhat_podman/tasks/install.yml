@@ -1,0 +1,100 @@
+# roles/redhat_podman/tasks/install.yml
+
+---
+- name: Verify RHEL system
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'RedHat'
+      - ansible_distribution_major_version | int >= 7
+    fail_msg: "This role requires RHEL 7 or later (detected: {{ ansible_distribution }} {{ ansible_distribution_version }})"
+    success_msg: "Running on RHEL {{ ansible_distribution_version }}"
+
+- name: Install Podman on RHEL 7 (via yum)
+  ansible.builtin.yum:
+    name:
+      - podman
+      - bash-completion
+      - lvm2
+      - policycoreutils-python
+    state: present
+  when: ansible_distribution_major_version == '7'
+
+- name: Install container-tools module (RHEL 8)
+  ansible.builtin.dnf:
+    name: "@container-tools"
+    state: present
+  when: ansible_distribution_major_version == '8'
+
+- name: Install container-tools package (RHEL 9+)
+  ansible.builtin.dnf:
+    name: container-tools
+    state: present
+  when: ansible_distribution_major_version | int >= 9
+
+- name: Install additional dependencies (RHEL 8+)
+  ansible.builtin.dnf:
+    name:
+      - bash-completion
+      - lvm2
+      - policycoreutils-python-utils
+    state: present
+  when: ansible_distribution_major_version | int >= 8
+
+# RHEL 7 : les user namespaces sont désactivés par défaut, Podman rootless en a besoin
+# Il faut DEUX choses : le paramètre kernel grubby + le sysctl
+- name: Check if user namespaces kernel parameter is set (RHEL 7)
+  ansible.builtin.command: grubby --info="{{ '{{' }} grubby --default-kernel {{ '}}' }}"
+  register: grubby_info
+  changed_when: false
+  failed_when: false
+  when: ansible_distribution_major_version == '7'
+
+- name: Check current user.max_user_namespaces value (RHEL 7)
+  ansible.builtin.command: sysctl -n user.max_user_namespaces
+  register: current_userns
+  changed_when: false
+  failed_when: false
+  when: ansible_distribution_major_version == '7'
+
+- name: Enable user namespaces kernel boot parameter (RHEL 7)
+  ansible.builtin.command: grubby --args="namespace.unpriv_enable=1" --update-kernel="ALL"
+  when:
+    - ansible_distribution_major_version == '7'
+    - "'namespace.unpriv_enable=1' not in grubby_info.stdout | default('')"
+  register: grubby_userns_result
+
+- name: Enable user namespaces sysctl (RHEL 7)
+  ansible.posix.sysctl:
+    name: user.max_user_namespaces
+    value: '15000'
+    sysctl_file: /etc/sysctl.d/99-userns.conf
+    reload: yes
+    state: present
+  when: ansible_distribution_major_version == '7'
+
+- name: Set reboot required flag if user namespaces were just enabled (RHEL 7)
+  ansible.builtin.set_fact:
+    podman_reboot_required: true
+  when:
+    - ansible_distribution_major_version == '7'
+    - grubby_userns_result is changed or (current_userns.stdout | default('0') | int == 0)
+
+- name: Warn if reboot required for user namespaces (RHEL 7)
+  ansible.builtin.debug:
+    msg:
+      - "REBOOT REQUIRED: User namespaces kernel parameter has been added."
+      - "Podman rootless will not work until the node is rebooted."
+      - "Run: ansible -m reboot {{ inventory_hostname }}"
+  when: podman_reboot_required | default(false) and ansible_distribution_major_version == '7'
+
+- name: Verify Podman installation
+  ansible.builtin.command: podman --version
+  register: podman_version
+  changed_when: false
+  failed_when: podman_version.rc != 0
+
+- name: Display installation result
+  ansible.builtin.debug:
+    msg:
+      - "Successfully installed {{ podman_version.stdout }}"
+      - "Mode: {{ 'Degraded (RHEL 7 - no Quadlets, no cgroups v2)' if ansible_distribution_major_version == '7' else ('Module install (RHEL 8)' if ansible_distribution_major_version == '8' else 'Package install (RHEL 9+)') }}"

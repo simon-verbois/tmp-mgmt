@@ -1,0 +1,78 @@
+# roles/redhat_podman/tasks/images_target.yml
+
+---
+- name: "[Validation] Vérifier que les variables prérequises sont définies"
+  ansible.builtin.assert:
+    that:
+      - podman_service_account_name is defined
+      - user_creation_result is defined or _podman_user_home is defined
+      - cleaned_podman_images is defined
+      - image_tar_mapping is defined
+      - controller_images_dir is defined
+      - target_images_dir is defined
+    fail_msg: |
+      ERREUR DE SÉQUENCE : Une ou plusieurs variables requises sont manquantes.
+      Cela signifie que ce fichier (images_target.yml) est exécuté avant ses dépendances.
+
+      Variables requises :
+      - user_creation_result ou _podman_user_home (définies dans user.yml)
+      - cleaned_podman_images (définie dans images.yml)
+      - image_tar_mapping (définie dans images_controller.yml)
+
+      Assurez-vous d'exécuter le rôle via son point d'entrée principal (tasks/main.yml)
+      et que la variable 'podman_images_to_load' est correctement définie si vous souhaitez charger des images.
+    quiet: true
+
+- name: "[Cible] S'assurer que le répertoire temporaire pour les images existe"
+  ansible.builtin.file:
+    path: "{{ target_images_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ _podman_user_group | default(podman_service_account_name) }}"
+
+- name: "[Cible] Transférer les archives des images vers le nœud cible"
+  ansible.builtin.copy:
+    src: "{{ controller_images_dir }}/{{ item.value }}"
+    dest: "{{ target_images_dir }}/{{ item.value }}"
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ _podman_user_group | default(podman_service_account_name) }}"
+    mode: '0644'
+  loop: "{{ image_tar_mapping | dict2items }}"
+  register: copy_result
+
+- name: "[Cible] Vérifier quelles images existent déjà"
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    podman images --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}' | \
+    grep -Fx '{{ item.key }}' || echo 'not-found'
+  args:
+    executable: /bin/bash
+  loop: "{{ image_tar_mapping | dict2items }}"
+  register: existing_images
+  changed_when: false
+
+- name: "[Cible] Charger les images manquantes depuis les archives"
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    podman load -i {{ target_images_dir }}/{{ item.item.value }}
+  args:
+    executable: /bin/bash
+  loop: "{{ existing_images.results }}"
+  when:
+    - item.stdout == 'not-found'
+    - copy_result is succeeded
+  register: load_result
+
+- name: "[Cible] Vérifier les images chargées"
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman images --format 'table {% raw %}{{.Repository}}:{{.Tag}}{% endraw %}'
+  args:
+    executable: /bin/bash
+  register: final_images
+  changed_when: false
+
+- name: "[Cible] Afficher les images finales"
+  ansible.builtin.debug:
+    var: final_images.stdout_lines
+

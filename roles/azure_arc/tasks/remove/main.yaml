@@ -1,0 +1,77 @@
+# roles/azure_arc/tasks/remove/main.yaml
+
+---
+- name: "UNINSTALL | Check Azure Arc connection status"
+  ansible.builtin.command: azcmagent show
+  register: __azurearc_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: "UNINSTALL | Disconnect server from Azure Arc"
+  ansible.builtin.command: >
+    azcmagent disconnect
+    --service-principal-id "{{ __azurearc_sp_id }}"
+    --service-principal-secret "{{ __azurearc_sp_secret }}"
+  environment: "{{ {'https_proxy': __azurearc_proxy_url, 'HTTPS_PROXY': __azurearc_proxy_url} if __azurearc_proxy_url | default('') | length > 0 else {} }}"
+  become: true
+  when: "'Connected' in __azurearc_status.stdout"
+
+- name: "UNINSTALL | Remove packages (RHEL 8+)"
+  ansible.builtin.dnf:
+    name: "{{ __azurearc_packages_list }}"
+    state: absent
+  become: true
+  when: ansible_facts['distribution_major_version'] | int >= 8
+
+- name: "UNINSTALL | Remove packages (RHEL 7)"
+  ansible.builtin.yum:
+    name: "{{ __azurearc_packages_list }}"
+    state: absent
+  become: true
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: "UNINSTALL | Remove Azure Arc repository"
+  ansible.builtin.file:
+    path: /etc/yum.repos.d/azurearc.repo
+    state: absent
+  become: true
+
+- name: "UNINSTALL | Remove himdsd systemd drop-in"
+  ansible.builtin.file:
+    path: /etc/systemd/system/himdsd.service.d
+    state: absent
+  become: true
+  notify: __azurearc_reload_systemd
+
+- name: "UNINSTALL | Unmount Arc filesystems"
+  ansible.posix.mount:
+    path: "{{ item }}"
+    state: unmounted
+  become: true
+  loop:
+    - "{{ __azurearc_mount_azcmagent }}"
+    - "{{ __azurearc_mount_guestconfig }}"
+
+- name: "UNINSTALL | Remove Arc mount points from fstab"
+  ansible.posix.mount:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - "{{ __azurearc_mount_azcmagent }}"
+    - "{{ __azurearc_mount_guestconfig }}"
+
+- name: "UNINSTALL | Remove LVs"
+  community.general.lvol:
+    lv: "{{ item }}"
+    vg: "{{ __azurearc_vg_name }}"
+    state: absent
+    force: true
+  become: true
+  loop:
+    - "{{ __azurearc_lv_azcmagent }}"
+    - "{{ __azurearc_lv_guestconfig }}"
+
+- name: "UNINSTALL | Flush handlers"
+  ansible.builtin.meta: flush_handlers

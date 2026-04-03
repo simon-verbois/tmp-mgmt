@@ -1,0 +1,15 @@
+---
+- name: Lifecycle - Prepare server for final shutdown
+  hosts: all
+  gather_facts: false
+  ignore_unreachable: true
+
+# Usage
+# ansible-playbook playbooks/tools/lifecycle/pre_decom_shutdown.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    PRE_DECOM_SHUTDOWN: true
+
+  roles:
+    - common
+    - tools

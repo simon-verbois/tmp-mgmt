@@ -1,0 +1,22 @@
+# roles/redhat_idm/tasks/setup/tasks/03_rules.yaml
+
+---
+- name: Configure HBAC Rules
+  redhat.rhel_idm.ipahbacrule:
+    name: "{{ item.value.hbac_rule }}"
+    group: "{{ item.value.user_group }}"
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    hostcategory: "{{ 'all' if item.value.access_all_hosts | bool else omit }}"
+    servicecategory: all
+  loop: "{{ deep_data | dict2items }}"
+
+- name: Configure SUDO Rules
+  redhat.rhel_idm.ipasudorule:
+    name: "{{ item.value.sudo_rule }}"
+    group: "{{ item.value.user_group }}"
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    hostcategory: "{{ 'all' if item.value.access_all_hosts | bool else omit }}"
+    cmdcategory: "{{ 'all' if item.value.access_all_hosts | bool else omit }}"
+    sudooption:
+      - "!authenticate"
+  loop: "{{ deep_data | dict2items }}"

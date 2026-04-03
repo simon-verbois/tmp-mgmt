@@ -1,0 +1,15 @@
+---
+- name: Automation - Create and delete client git project based on satellite
+  hosts: localhost
+  gather_facts: no
+
+# Usage
+# ansible-playbook playbooks/_automation/create_client_repo_on_git.yaml
+
+  vars:
+    CREATE_CLIENT_REPO_ON_GIT: true
+
+  roles:
+    - common
+    - automation
+    

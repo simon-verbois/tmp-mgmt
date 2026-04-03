@@ -1,0 +1,9 @@
+# roles/named/defaults/main.yaml
+
+---
+__packages:
+  - bind
+  - bind-utils
+  - rsync
+  - curl
+  - yum-utils

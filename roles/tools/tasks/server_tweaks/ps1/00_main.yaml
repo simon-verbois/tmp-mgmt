@@ -1,0 +1,32 @@
+# roles/tools/tasks/server_tweaks/ps1/00_main.yaml
+
+---
+- block:
+  - name: Create custom.sh file with environment color
+    ansible.builtin.copy:
+      dest: /etc/profile.d/custom.sh
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        {% if 'Prod' in group_names %}
+        # Production: Red Background
+        export PS1="\[\033[01;41m\](PROD) \u@\h:\w\[\033[0m\]$ "
+        {% elif 'Preprod' in group_names %}
+        # Preprod: Yellow Background
+        export PS1="\[\033[01;43m\](PREPROD) \u@\h:\w\[\033[0m\]$ "
+        {% elif 'UAT' in group_names %}
+        # UAT: Blue Background
+        export PS1="\[\033[01;44m\](UAT) \u@\h:\w\[\033[0m\]$ "
+        {% elif 'Dev' in group_names %}
+        # Development: Green Background
+        export PS1="\[\033[01;42m\](DEV) \u@\h:\w\[\033[0m\]$ "
+        {% else %}
+        # Unknown or other: Magenta Background
+        export PS1="\[\033[01;45m\](UNKNOWN) \u@\h:\w\[\033[0m\]$ "
+        {% endif %}
+
+  rescue:
+  - name: Handle errors during server tuning
+    ansible.builtin.debug:
+      msg: "Failed to deploy PS1 tweaks."

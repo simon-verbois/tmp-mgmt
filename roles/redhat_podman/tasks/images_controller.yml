@@ -1,0 +1,56 @@
+# roles/redhat_podman/tasks/images_controller.yml
+
+---
+- name: Ensure image directory exists on controller
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ controller_images_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check if podman is available on controller
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command: which podman
+  register: controller_podman_check
+  failed_when: false
+  changed_when: false
+
+- name: Fail if podman not available on controller
+  ansible.builtin.fail:
+    msg: "Podman is required on the Ansible controller to pull images"
+  when: controller_podman_check.rc != 0
+
+- name: Pull container images on controller
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command: "podman pull {{ item }}"
+  loop: "{{ cleaned_podman_images }}"
+  environment:
+    http_proxy: "{{ podman_http_proxy | default(omit) }}"
+    https_proxy: "{{ podman_https_proxy | default(omit) }}"
+    no_proxy: "{{ podman_no_proxy | default(omit) }}"
+  retries: "{{ podman_image_pull_retries }}"
+  delay: "{{ podman_image_pull_delay }}"
+  register: pull_result
+  until: pull_result.rc == 0
+
+- name: Generate tar file names
+  ansible.builtin.set_fact:
+    image_tar_mapping: |
+      {% set mapping = {} %}
+      {% for image in cleaned_podman_images %}
+      {%   set tar_name = (image | split('/') | last | replace(':', '_')) + '.tar' %}
+      {%   set _ = mapping.update({image: tar_name}) %}
+      {% endfor %}
+      {{ mapping }}
+
+- name: Save container images to tar files
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command: >
+    podman save "{{ item.key }}" -o "{{ controller_images_dir }}/{{ item.value }}"
+  loop: "{{ image_tar_mapping | dict2items }}"
+  args:
+    creates: "{{ controller_images_dir }}/{{ item.value }}"

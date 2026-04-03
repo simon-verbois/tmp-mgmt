@@ -1,0 +1,45 @@
+# roles/tools/tasks/server_manual_patching/vcenter/02_delete_snapshot.yaml
+
+---
+- name: "VCENTER | Main block for VM search and snapshot deletion on {{ current_vcenter.value.url }}"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search for VM {{ inventory_hostname_short | lower }}"
+      community.vmware.vmware_vm_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        vm_name: "{{ inventory_hostname_short | lower }}"
+      register: vm_info
+
+    - name: "VCENTER | Fail and trigger rescue (skip) if the VM was not found"
+      ansible.builtin.fail:
+        msg: "VM_NOT_FOUND"
+      when: vm_info.virtual_machines | length == 0
+
+    - name: "VCENTER | Set facts for the found VM"
+      ansible.builtin.set_fact:
+        vm_details: "{{ vm_info.virtual_machines[0] }}"
+
+    - name: "VCENTER | Delete snapshot for {{ inventory_hostname_short | lower }}"
+      community.vmware.vmware_guest_snapshot:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+        state: absent
+        snapshot_name: "{{ snapshot_name }}"
+
+    - name: "VCENTER | Add a BREAK loop var"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | Output message"
+      ansible.builtin.debug:
+        msg: "Read error message above"

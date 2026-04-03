@@ -1,0 +1,89 @@
+# roles/tools/tasks/server_add_memory/vcenter/get_memory_info.yaml
+
+---
+- name: "VCENTER | Get memory info block"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search VM"
+      ansible.builtin.include_tasks:
+        file: search_vm.yaml
+
+    - name: "VCENTER | Gather full VM information"
+      community.vmware.vmware_guest_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+      register: vm_all_info
+
+    - name: "VCENTER | Get memory hot-add status via REST API"
+      ansible.builtin.shell:
+        cmd: |
+          SESSION=$(curl -sk -X POST \
+            "https://{{ current_vcenter.value.url }}/rest/com/vmware/cis/session" \
+            -u '{{ current_vcenter.value.username }}:{{ current_vcenter.value.password }}' \
+            -H 'Content-Type: application/json' | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+
+          curl -sk \
+            "https://{{ current_vcenter.value.url }}/rest/vcenter/vm/{{ vm_details.moid }}" \
+            -H "vmware-api-session-id: $SESSION" \
+            -H 'Content-Type: application/json' | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)['value']
+          mem = data.get('memory', {})
+          print(json.dumps({
+              'hot_add_enabled': mem.get('hot_add_enabled', False),
+              'size_mib': mem.get('size_MiB', 0)
+          }))"
+      register: rest_mem_raw
+      changed_when: false
+      no_log: true
+
+    - name: "VCENTER | Parse REST API memory response"
+      ansible.builtin.set_fact:
+        rest_mem_info: "{{ rest_mem_raw.stdout | from_json }}"
+
+    - name: "VCENTER | Extract memory configuration"
+      vars:
+        _hw_version: "{{ vm_all_info.instance.hw_version | default('vmx-13') }}"
+        _hw_num: "{{ _hw_version | regex_replace('vmx-', '') | int }}"
+        _hw_max_map:
+          "7": 262144
+          "8": 1048576
+          "9": 1048576
+          "10": 1048576
+          "11": 4194304
+          "13": 6291456
+          "14": 6291456
+          "15": 6291456
+          "17": 16777216
+          "18": 16777216
+          "19": 25165824
+          "20": 25165824
+          "21": 25165824
+      ansible.builtin.set_fact:
+        vcenter_mem_info:
+          memory_mb: "{{ vm_all_info.instance.hw_memtotal_mb }}"
+          hot_add_enabled: "{{ rest_mem_info.hot_add_enabled }}"
+          hw_version: "{{ _hw_version }}"
+          hw_max_memory_mb: "{{ _hw_max_map[_hw_num | string] | default(6291456) }}"
+          vm_name: "{{ vm_details.guest_name | default(inventory_hostname_short | lower) }}"
+        vcenter_conn:
+          hostname: "{{ current_vcenter.value.url }}"
+          username: "{{ current_vcenter.value.username }}"
+          password: "{{ current_vcenter.value.password }}"
+          datacenter: "{{ vm_details.datacenter }}"
+          uuid: "{{ vm_details.uuid }}"
+
+    - name: "VCENTER | Break loop"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "VM {{ inventory_hostname_short | lower }} not found, trying next vCenter..."

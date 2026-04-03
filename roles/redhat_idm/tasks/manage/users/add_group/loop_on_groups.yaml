@@ -1,0 +1,13 @@
+# roles/redhat_idm/tasks/manage/users/add_group/03_loop_on_groups.yaml
+
+---
+- name: Include add to group tasks
+  ansible.builtin.include_tasks: add_to_group.yaml
+
+- name: Append result data to csv
+  ansible.builtin.set_fact:
+    csv_lines: "{{ csv_lines }}{{ username }},\
+                {{ 'Added to' if add_to_group_result.changed | default(false) else 'Doesn''t exist on this IPA' }},\
+                {{ groupname }},\
+                {{ client_id }},\
+                {{ ipa_domain }};"

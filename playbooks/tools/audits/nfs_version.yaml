@@ -1,0 +1,43 @@
+---
+- name: Audit - Check mounted NFS versions
+  hosts: all
+  gather_facts: false
+  serial: 20
+
+# Usage
+# ansible-playbook playbooks/tools/audits/nfs_version.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+# ansible-playbook playbooks/tools/audits/nfs_version.yaml -i clients/XXXX/hosts.ini
+
+  tasks:
+    - name: Remove existing report file
+      delegate_to: localhost
+      run_once: true
+      ansible.builtin.file:
+        path: "./nfs_audit_report.csv"
+        state: absent
+
+    - name: Create report file with CSV header
+      delegate_to: localhost
+      run_once: true
+      ansible.builtin.copy:
+        content: "Hostname,NFS_Versions_Found\n"
+        dest: "./nfs_audit_report.csv"
+
+    - name: Extract unique NFS versions
+      ansible.builtin.shell: "findmnt -t nfs,nfs4 -n -o OPTIONS | grep -o 'vers=[0-9.]*' | sort -u | paste -sd ' ' -"
+      register: nfs_versions_out
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Normalize Output
+      ansible.builtin.set_fact:
+        nfs_final_str: "{{ nfs_versions_out.stdout if nfs_versions_out.stdout | length > 0 else 'None' }}"
+
+    - name: Append result to local CSV
+      delegate_to: localhost
+      ansible.builtin.lineinfile:
+        path: "./nfs_audit_report.csv"
+        line: "{{ inventory_hostname }},{{ nfs_final_str }}"
+        insertafter: EOF
+      delegate_to: localhost

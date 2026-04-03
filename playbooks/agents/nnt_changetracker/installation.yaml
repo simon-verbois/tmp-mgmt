@@ -1,0 +1,15 @@
+---
+- name: Playbook for NNT installation
+  hosts: all
+  become: true
+  gather_facts: true
+
+# Usage
+# ansible-playbook playbooks/agents/nnt_changetracker/installation.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    NNT_INSTALL_AGENT: true
+
+  roles:
+    - common
+    - nnt_changetracker

@@ -1,0 +1,28 @@
+---
+- name: Playbook for IPA management
+  hosts: localhost
+
+# Usage
+# Create a user
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_creation=true __clients_id_prompted='XXXX' __username='jdoe' __user_firstname='John' __user_lastname='Doe' __user_mail='jdoe@example.com' __user_groups='group1 group2'"
+
+# Delete a user
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_deletion=true __clients_id_prompted='XXXX' __username='jdoe'"
+
+# Reset password
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_password_reset=true __clients_id_prompted='XXXX' __username='jdoe'"
+
+# Disable / Enable
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_disabling=true __clients_id_prompted='XXXX' __username='jdoe'"
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_enabling=true __clients_id_prompted='XXXX' __username='jdoe'"
+
+# Add / Remove from group
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_add_group=true __clients_id_prompted='XXXX' __username='jdoe' __user_groups='ict-linux'"
+# ansible-playbook playbooks/managed_services/redhat_idm/manage.yaml -e "enable_user_remove_group=true __clients_id_prompted='XXXX' __username='jdoe' __user_groups='ict-linux'"
+
+  vars:
+    REDHAT_IDM_MANAGING: true
+
+  roles:
+    - common
+    - redhat_idm

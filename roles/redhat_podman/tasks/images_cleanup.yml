@@ -1,0 +1,29 @@
+# roles/redhat_podman/tasks/images_cleanup.yml
+
+---
+- name: Remove temporary files on target
+  ansible.builtin.file:
+    path: "{{ target_images_dir }}"
+    state: absent
+  tags:
+    - cleanup
+
+- name: Remove temporary files on controller
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ controller_images_dir }}"
+    state: absent
+  tags:
+    - cleanup
+
+- name: Clean up unused Podman data on target (optional)
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman system prune -f
+  args:
+    executable: /bin/bash
+  when: podman_cleanup_unused | default(false)
+  register: prune_result
+  changed_when: "'Deleted Images' in prune_result.stdout"
+  tags:
+    - cleanup

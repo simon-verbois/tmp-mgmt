@@ -1,0 +1,38 @@
+# roles/redhat_idm/defaults/main.yaml
+
+---
+# Vars to select IPA ou env to run
+__clients_id_prompted: "" # Separate with a ;
+__clients_id_excluded_prompted: "" # Separate with a ;
+__target_environment: ""
+
+# Var to override the zip encryption password
+__use_internal_communication_password: false
+
+# Creation vars init
+__data_prompted: "" # manage var, but only used in Tower/AAP with this scheme: username;firstname;lastname;mail;group1,group2
+__username: "" # manage var
+__user_firstname: "" # manage var
+__user_lastname: "" # manage var
+__user_mail: "" # manage var
+__user_groups: "" # manage var + reporting var
+__user_homefolder: "/home" # manage var
+__user_default_shell: "/bin/bash" # manage var
+__user_service_account: false # manage var
+# Reporting flags (individual sheets)
+enable_users_reporting: false
+enable_user_groups_reporting: false
+enable_hosts_reporting: false
+enable_host_groups_reporting: false
+enable_sudo_rules_reporting: false
+enable_hbac_rules_reporting: false
+enable_password_policies_reporting: false
+enable_roles_reporting: false
+enable_services_reporting: false
+enable_dns_zones_reporting: false
+enable_hbac_services_reporting: false
+enable_hbac_svc_groups_reporting: false
+enable_sudo_commands_reporting: false
+enable_sudo_cmd_groups_reporting: false
+enable_automember_reporting: false
+enable_all_reporting: false

@@ -1,0 +1,12 @@
+# roles/redhat_idm/tasks/manage/users/deletion/02_loop_on_users.yaml
+
+---
+- name: Include delete user tasks
+  ansible.builtin.include_tasks: delete_user.yaml
+
+- name: Append result data to csv
+  ansible.builtin.set_fact:
+    csv_lines: "{{ csv_lines }}{{ username }},\
+                {{ 'Deleted' if user_deletion_result.changed | default(false) else 'Doesn''t exist on this IPA' }},\
+                {{ client_id }},\
+                {{ ipa_domain }};"

@@ -1,0 +1,23 @@
+[Unit]
+Description=My Apache web server container (RHEL 7)
+After=network.target
+Wants=network.target
+
+[Service]
+User=svc-podman
+Group=svc-podman
+
+ExecStartPre=-/usr/bin/podman stop my-web-app
+ExecStartPre=-/usr/bin/podman rm my-web-app
+ExecStart=/usr/bin/podman run \
+    --name my-web-app \
+    --publish 8080:8080/tcp \
+    registry.access.redhat.com/ubi9/httpd-24
+ExecStop=/usr/bin/podman stop my-web-app
+ExecStopPost=/usr/bin/podman rm -f my-web-app
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

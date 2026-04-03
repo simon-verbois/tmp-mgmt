@@ -1,0 +1,17 @@
+# roles/redhat_idm/tasks/utils/create_working_dir.yaml
+
+---
+- name: Define - working_dir with a unique id
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.set_fact:
+    working_dir: "/opt/ebrc/all/projects/linux-automation-framework/{{ lookup('pipe', 'uuidgen') }}"
+
+- name: Create {{ working_dir }}
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    mode: "0777"
+    state: "directory"
+    setype: _default

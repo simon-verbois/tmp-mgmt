@@ -1,0 +1,80 @@
+# roles/redhat_podman/tasks/selinux.yml
+
+---
+- name: Check SELinux status
+  ansible.builtin.command: getenforce
+  register: selinux_status
+  changed_when: false
+  failed_when: false
+
+- name: Configure SELinux contexts
+  when: selinux_status.stdout | default('Disabled') | lower == 'enforcing'
+  block:
+    # --- Étape 1 : Récupération des infos utilisateur ---
+    - name: Ensure user info is loaded
+      ansible.builtin.include_tasks: common_user_info.yml
+
+    # --- Étape 2 : Définition des contextes ---
+    # Contextes communs à toutes les versions RHEL
+    - name: Define base SELinux contexts for container storage
+      community.general.sefcontext:
+        target: "{{ item.target }}"
+        setype: "{{ item.setype }}"
+        state: present
+      loop:
+        - { target: "{{ podman_user_fact.home }}/\\.config/containers(/.*)?", setype: 'container_home_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers(/.*)?", setype: 'container_var_lib_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage(/.*)?", setype: 'container_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay-containers(/.*)?", setype: 'container_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/volumes(/.*)?", setype: 'container_file_t' }
+      register: sefcontext_base_result
+
+    # container_ro_file_t n'existe pas sur RHEL 7 — on utilise container_file_t en fallback
+    - name: Define overlay read-only SELinux contexts (RHEL 8+)
+      community.general.sefcontext:
+        target: "{{ item.target }}"
+        setype: "{{ item.setype }}"
+        state: present
+      loop:
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay(/.*)?", setype: 'container_ro_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay-images(/.*)?", setype: 'container_ro_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay-layers(/.*)?", setype: 'container_ro_file_t' }
+      when: ansible_distribution_major_version | int >= 8
+      register: sefcontext_ro_result
+
+    - name: Define overlay SELinux contexts (RHEL 7 fallback)
+      community.general.sefcontext:
+        target: "{{ item.target }}"
+        setype: "{{ item.setype }}"
+        state: present
+      loop:
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay(/.*)?", setype: 'container_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay-images(/.*)?", setype: 'container_file_t' }
+        - { target: "{{ podman_user_fact.home }}/\\.local/share/containers/storage/overlay-layers(/.*)?", setype: 'container_file_t' }
+      when: ansible_distribution_major_version == '7'
+      register: sefcontext_rhel7_result
+
+    # --- Étape 3 : Application ---
+    - name: Ensure critical directories exist before restorecon
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ podman_user_fact.name }}"
+        group: "{{ podman_user_fact.gid }}"
+        mode: '0755'
+      loop:
+        - "{{ podman_user_fact.home }}/.local/share/containers"
+        - "{{ podman_user_fact.home }}/.config/containers"
+
+    - name: Apply SELinux contexts
+      ansible.builtin.command: "restorecon -RvF {{ podman_user_fact.home }}"
+      # On applique si les contextes ont changé OU si on force la validation via variable
+      when: sefcontext_base_result.changed or (sefcontext_ro_result.changed | default(false)) or (sefcontext_rhel7_result.changed | default(false)) or podman_validate_selinux | default(true)
+      register: restorecon_result
+      changed_when: restorecon_result.stdout | length > 0
+
+    - name: Set container_manage_cgroup boolean
+      ansible.posix.seboolean:
+        name: container_manage_cgroup
+        state: yes
+        persistent: yes

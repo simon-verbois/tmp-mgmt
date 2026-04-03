@@ -1,0 +1,16 @@
+# roles/azure_arc/tasks/installation/checks/vg_data_exists.yaml
+
+---
+- name: "CHECKS | Verify if VG {{ __azurearc_vg_name }} exists"
+  ansible.builtin.command: "vgs {{ __azurearc_vg_name }}"
+  register: __azurearc_vg_check
+  changed_when: false
+  failed_when: false
+
+- name: "CHECKS | Set vg_data existence fact"
+  ansible.builtin.set_fact:
+    __azurearc_vg_data_exists: "{{ __azurearc_vg_check.rc == 0 }}"
+
+- name: "CHECKS | Debug VG existence"
+  ansible.builtin.debug:
+    msg: "VG {{ __azurearc_vg_name }} {{ 'exists' if __azurearc_vg_data_exists else 'does not exist — a new disk will be added' }}."

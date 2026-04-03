@@ -1,0 +1,13 @@
+# roles/tools/tasks/server_pre_decom_start/main.yaml
+
+---
+- name: Include vcenter tasks
+  ansible.builtin.include_tasks: vcenter/main.yaml
+
+- name: Pause execution to let server recover from boot burst (2 minutes)
+  ansible.builtin.command: sleep 120
+  delegate_to: localhost
+  become: false
+
+- name: Include Centreon tasks
+  ansible.builtin.include_tasks: centreon/00_main.yaml

@@ -1,0 +1,78 @@
+# roles/splunk_forwarder/tasks/remove_forwarder/main.yaml
+
+---
+- name: Stop and disable {{ __splunkfw_service }}
+  ansible.builtin.service:
+    name: "{{ __splunkfw_service }}"
+    state: stopped
+    enabled: false
+  register: _service_stop
+  failed_when:
+    - _service_stop.failed | default(false)
+    - "'Could not find' not in (_service_stop.msg | default(''))"
+    - "'No such file' not in (_service_stop.msg | default(''))"
+    
+- name: Uninstall {{ __splunkfw_package }}
+  ansible.builtin.package:
+    name: "{{ __splunkfw_package }}"
+    state: absent
+  register: _pkg_remove
+  failed_when:
+    - _pkg_remove.failed | default(false)
+    - "'No package' not in (_pkg_remove.msg | default(''))"
+    - "'not installed' not in (_pkg_remove.msg | default(''))"
+
+- name: Remove remaining Splunk forwarder resources
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/yum.repos.d/splunkfw.repo"
+    - "/opt/splunkforwarder/"
+
+- name: "Delete the {{ __splunkfw_user }} user"
+  ansible.builtin.user:
+    name: "{{ __splunkfw_user }}"
+    state: absent
+  register: _user_remove
+  failed_when:
+    - _user_remove.failed | default(false)
+    - "'does not exist' not in (_user_remove.msg | default(''))"
+
+- name: "Delete the {{ __splunkfw_group }} group"
+  ansible.builtin.group:
+    name: "{{ __splunkfw_group }}"
+    state: absent
+  register: _group_remove
+  failed_when:
+    - _group_remove.failed | default(false)
+    - "'does not exist' not in (_group_remove.msg | default(''))"
+
+- name: Reload systemd daemon
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  register: _daemon_reload
+  failed_when:
+    - _daemon_reload.failed | default(false)
+    - ansible_service_mgr == 'systemd'
+
+- name: Clean yum cache
+  become: true
+  ansible.builtin.command: yum clean all
+  register: _yum_clean
+  changed_when: false
+  failed_when:
+    - _yum_clean.rc != 0
+    - "'No such file' not in (_yum_clean.stderr | default(''))"
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: Clean dnf cache
+  become: true
+  ansible.builtin.command: dnf clean all
+  register: _dnf_clean
+  changed_when: false
+  failed_when:
+    - _dnf_clean.rc != 0
+    - "'No such file' not in (_dnf_clean.stderr | default(''))"
+  when: ansible_facts['distribution_major_version'] | int >= 8

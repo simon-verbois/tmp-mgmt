@@ -1,0 +1,247 @@
+# roles/redhat_podman/tasks/images.yml
+
+---
+- name: Set image handling facts
+  ansible.builtin.set_fact:
+    # Directory on controller for storing images
+    podman_controller_images_dir: "{{ podman_controller_images_dir | default('/var/tmp/podman-images') }}"
+    # Directory on target for temporary storage
+    podman_remote_images_dir: "/var/tmp/podman-images-transfer"
+    # Define image files list if not set
+    podman_image_files: "{{ podman_image_files | default([]) }}"
+    # Define images to load list if not set
+    podman_images_to_load: "{{ podman_images_to_load | default([]) }}"
+
+# --- DEBUT AJOUT : FILTRAGE DES IMAGES ---
+- name: Check which images are already present on target
+  ansible.builtin.shell: "sudo -u {{ podman_service_account_name }} -i podman image exists {{ item }}"
+  args:
+    executable: /bin/bash
+  loop: "{{ podman_images_to_load }}"
+  register: image_existence_check
+  failed_when: false
+  changed_when: false
+  check_mode: no # On doit exécuter cette commande même en mode simulation (-C)
+
+- name: Filter out existing images
+  ansible.builtin.set_fact:
+    # On ne garde que les images dont le code de retour (rc) n'est pas 0 (donc qui n'existent pas)
+    podman_images_to_load: "{{ image_existence_check.results | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+
+- name: Debug images to process
+  ansible.builtin.debug:
+    msg: "Images manquantes à traiter : {{ podman_images_to_load }}"
+# --- FIN AJOUT ---
+
+- name: Update processing flags
+  ansible.builtin.set_fact:
+    has_image_files: "{{ (podman_image_files | default([])) | length > 0 }}"
+    has_images_to_load: "{{ (podman_images_to_load | default([])) | length > 0 }}"
+
+# Process images that need to be pulled from registry
+- name: Pull and transfer images from registry
+  when: has_images_to_load
+  block:
+    - name: Create temporary directory on controller for pulled images
+      ansible.builtin.file:
+        path: "{{ podman_controller_images_dir }}"
+        state: directory
+        mode: '2775'
+        group: "ict-linux" # Groupe commun à toute l'équipe
+      delegate_to: localhost
+      become: no
+
+    - name: Check if podman is available on controller
+      ansible.builtin.command:
+        cmd: which podman
+      delegate_to: localhost
+      become: no
+      register: podman_on_controller
+      failed_when: false
+      changed_when: false
+
+    - name: Pull images to controller
+      ansible.builtin.command:
+        cmd: "podman pull {{ item }}"
+      loop: "{{ podman_images_to_load }}"
+      delegate_to: localhost
+      become: no
+      register: pull_results
+      environment:
+        http_proxy: "{{ podman_http_proxy | default('') }}"
+        https_proxy: "{{ podman_https_proxy | default('') }}"
+        no_proxy: "{{ podman_no_proxy | default('') }}"
+      when: podman_on_controller.rc == 0
+
+    - name: Check if tar files already exist
+      ansible.builtin.stat:
+        path: "{{ podman_controller_images_dir }}/{{ item | replace('/', '_') | replace(':', '_') }}.tar"
+      loop: "{{ podman_images_to_load }}"
+      register: tar_files_stat
+      delegate_to: localhost
+      become: no
+      when: podman_on_controller.rc == 0
+
+    - name: Save pulled images to tar files (skip if exists)
+      ansible.builtin.command:
+        cmd: "podman save -o {{ podman_controller_images_dir }}/{{ item.item | replace('/', '_') | replace(':', '_') }}.tar {{ item.item }}"
+      loop: "{{ tar_files_stat.results }}"
+      delegate_to: localhost
+      become: no
+      when:
+        - podman_on_controller.rc == 0
+        - not item.stat.exists
+
+    - name: Re-check tar files after save
+      ansible.builtin.stat:
+        path: "{{ podman_controller_images_dir }}/{{ item | replace('/', '_') | replace(':', '_') }}.tar"
+      loop: "{{ podman_images_to_load }}"
+      register: tar_files_after_save
+      delegate_to: localhost
+      become: no
+      when: podman_on_controller.rc == 0
+
+    - name: Ensure group write permissions on saved tar files
+      ansible.builtin.file:
+        path: "{{ podman_controller_images_dir }}/{{ item.item | replace('/', '_') | replace(':', '_') }}.tar"
+        mode: '0664'        # rw-rw-r-- (Ecriture pour le groupe)
+        group: "ict-linux"
+      loop: "{{ tar_files_after_save.results | default([]) }}"
+      delegate_to: localhost
+      become: no
+      when:
+        - podman_on_controller.rc == 0
+        - item.stat.exists
+
+    - name: Check if skopeo is available
+      ansible.builtin.command:
+        cmd: which skopeo
+      delegate_to: localhost
+      become: no
+      register: skopeo_on_controller
+      failed_when: false
+      changed_when: false
+      when: podman_on_controller.rc != 0
+
+    - name: Pull images using skopeo
+      ansible.builtin.command:
+        cmd: "skopeo copy --override-os linux docker://{{ item }} docker-archive:{{ podman_controller_images_dir }}/{{ item | replace('/', '_') | replace(':', '_') }}.tar"
+      loop: "{{ podman_images_to_load }}"
+      delegate_to: localhost
+      become: no
+      environment:
+        http_proxy: "{{ podman_http_proxy | default('') }}"
+        https_proxy: "{{ podman_https_proxy | default('') }}"
+        no_proxy: "{{ podman_no_proxy | default('') }}"
+      when:
+        - podman_on_controller.rc != 0
+        - skopeo_on_controller.rc == 0
+
+    - name: Fail if neither podman nor skopeo available
+      ansible.builtin.fail:
+        msg: "Neither podman nor skopeo is available on the controller. Please install one of them to pull images."
+      when:
+        - podman_on_controller.rc != 0
+        - skopeo_on_controller.rc != 0
+
+    - name: Create list of generated tar files
+      ansible.builtin.set_fact:
+        image_tar_files: "{{ podman_images_to_load | map('regex_replace', '/', '_') | map('regex_replace', ':', '_') | map('regex_replace', '$', '.tar') | list }}"
+
+# Process existing image tar files
+- name: Process container image files
+  when: has_image_files
+  block:
+    - name: Check if image files exist on controller
+      ansible.builtin.stat:
+        path: "{{ podman_controller_images_dir }}/{{ item }}"
+      loop: "{{ podman_image_files }}"
+      register: image_files_stat
+      delegate_to: localhost
+      become: no
+
+    - name: Fail if image files don't exist
+      ansible.builtin.fail:
+        msg: "Image file not found: {{ item.item }} in {{ podman_controller_images_dir }}"
+      loop: "{{ image_files_stat.results }}"
+      when: not item.stat.exists
+
+# Transfer all image files to target
+- name: Transfer and load images on target
+  when: has_image_files or has_images_to_load
+  block:
+    - name: Create remote directory for images
+      ansible.builtin.file:
+        path: "{{ podman_remote_images_dir }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ podman_service_account_name }}"
+        group: "{{ podman_service_account_name }}"
+
+    - name: Combine all image files to transfer
+      ansible.builtin.set_fact:
+        all_image_files: "{{ (podman_image_files | default([])) + (image_tar_files | default([])) }}"
+
+    - name: Check image files exist on controller before transfer
+      ansible.builtin.stat:
+        path: "{{ podman_controller_images_dir }}/{{ item }}"
+      loop: "{{ all_image_files }}"
+      register: transfer_files_stat
+      delegate_to: localhost
+      become: no
+
+    - name: Transfer image files to target
+      ansible.builtin.copy:
+        src: "{{ podman_controller_images_dir }}/{{ item.item }}"
+        dest: "{{ podman_remote_images_dir }}/{{ item.item }}"
+        owner: "{{ podman_service_account_name }}"
+        group: "{{ podman_service_account_name }}"
+        mode: '0644'
+      loop: "{{ transfer_files_stat.results }}"
+      when: item.stat.exists
+      register: transfer_results
+
+    - name: Build list of successfully transferred files
+      ansible.builtin.set_fact:
+        transferred_image_files: "{{ transfer_results.results | default([]) | rejectattr('skipped', 'defined') | map(attribute='item') | map(attribute='item') | list }}"
+
+    - name: Load images into Podman on target
+      ansible.builtin.shell: "sudo -u {{ podman_service_account_name }} -i podman load -i {{ podman_remote_images_dir }}/{{ item }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ transferred_image_files }}"
+      register: image_load_results
+
+    - name: Clean up temporary image files on target
+      ansible.builtin.file:
+        path: "{{ podman_remote_images_dir }}"
+        state: absent
+
+    - name: Display loaded images
+      ansible.builtin.debug:
+        msg: "Loaded {{ all_image_files | length }} image(s) successfully"
+
+# Final verification
+- name: Verify images are available
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman images --format 'table {{ '{{' }}.Repository{{ '}}' }} {{ '{{' }}.Tag{{ '}}' }} {{ '{{' }}.ID{{ '}}' }} {{ '{{' }}.Size{{ '}}' }}'
+  args:
+    executable: /bin/bash
+  register: final_images_list
+  changed_when: false
+
+- name: Display available images
+  ansible.builtin.debug:
+    msg: "{{ final_images_list.stdout_lines }}"
+
+- name: Fail if no images available but were expected
+  ansible.builtin.fail:
+    msg: "No images found in podman after loading. Check the image transfer process."
+  when:
+    - (has_image_files or has_images_to_load)
+    - "'IMAGE ID' in final_images_list.stdout and final_images_list.stdout_lines | length <= 1"
+
+- name: Display summary when no images configured
+  when: not has_image_files and not has_images_to_load
+  ansible.builtin.debug:
+    msg: "No container images configured for loading or pulling"

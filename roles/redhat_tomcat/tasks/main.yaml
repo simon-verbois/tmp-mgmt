@@ -1,0 +1,11 @@
+# roles/redhat_tomcat/tasks/main.yaml
+
+---
+- ansible.builtin.include_tasks: install/main.yaml
+  when: INSTALL_TOMCAT | default(false)
+
+- ansible.builtin.include_tasks: remove/main.yaml
+  when: REMOVE_TOMCAT | default(false)
+
+- ansible.builtin.include_tasks: configure/main.yaml
+  when: CONFIGURE_TOMCAT | default(false)

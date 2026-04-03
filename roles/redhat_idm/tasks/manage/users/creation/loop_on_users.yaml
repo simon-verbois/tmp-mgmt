@@ -1,0 +1,33 @@
+# roles/redhat_idm/tasks/manage/users/creation/02_loop_on_users.yaml
+
+---
+- name: Generate random password
+  ansible.builtin.set_fact:
+    generated_password: "{{ lookup('community.general.random_string', length=20, override_special='%()+-/<=>?^_') }}"
+  no_log: true
+
+- name: Define expiration date and groups list
+  ansible.builtin.set_fact:
+    final_expiration: >-
+      {%- if user_service_account | default(false) | bool -%}
+        22220101010101
+      {%- else -%}
+        {{ '' }}
+      {%- endif -%}
+    final_user_groups: >-
+      {{ user_groups }}{{ ',maxlife' if user_service_account | default(false) | bool else '' }}
+
+- ansible.builtin.include_tasks: create_user.yaml
+
+- ansible.builtin.include_tasks: add_to_group.yaml
+  loop: "{{ final_user_groups | replace(' ', ',') | split(',') }}"
+  loop_control:
+    loop_var: groupname
+  when: final_user_groups != ""
+
+- name: Append result data to csv
+  ansible.builtin.set_fact:
+    csv_lines: "{{ csv_lines }}{{ username }},\
+                {{ generated_password }},\
+                {{ client_id }},\
+                {{ ipa_domain }};"

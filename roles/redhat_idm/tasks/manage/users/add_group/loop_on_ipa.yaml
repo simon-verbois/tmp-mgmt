@@ -1,0 +1,39 @@
+# roles/redhat_idm/tasks/manage/users/add_group/01_loop_on_ipa.yaml
+
+---
+- name: Define mail_subject var
+  ansible.builtin.set_fact:
+    csv_lines: "sep=,;Username,Status,Groups,Client ID,IPA Domain;"
+
+- block:
+  - name: Failed if __username is empty
+    ansible.builtin.fail:
+      msg: "__username is empty, stopping execution."
+    when: __username | length == 0
+
+  - name: Loop on __username list
+    ansible.builtin.include_tasks: loop_on_users.yaml
+    loop: '{{ __username | split(";") }}'
+    loop_control:
+      loop_var: username
+
+  - name: "Create csv result file for {{ ipa_server }}" 
+    ansible.builtin.lineinfile:
+      insertafter: EOF
+      create: true
+      dest: "{{ working_dir }}/ipa_add_users_to_groups_{{ current_ipa.key }}_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.csv"
+      line: "{{ line }}"
+    loop: "{{ csv_lines | split(';') }}"
+    loop_control:
+      loop_var: line
+      label: "Sensitive data is hidden."
+    when: 
+      - line != "" and csv_lines is defined
+      - add_to_group_result is defined and not add_to_group_result.failed
+
+  rescue:
+  - name: Fill mail_content with error message
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        The __username list cannot be empty, stopping execution.

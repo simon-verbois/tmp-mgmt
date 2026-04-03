@@ -1,0 +1,99 @@
+# roles/redhat_podman/tasks/validate_selinux.yml
+
+---
+- name: Check overall SELinux status
+  ansible.builtin.command: sestatus
+  register: sestatus
+  changed_when: false
+
+- name: Display SELinux status
+  ansible.builtin.debug:
+    var: sestatus.stdout_lines
+
+- name: Check home directory contexts
+  ansible.builtin.shell: |
+    ls -laZ {{ _podman_user_home | default(podman_user_home) }} | head -n 20
+  args:
+    executable: /bin/bash
+  register: home_contexts
+  changed_when: false
+
+- name: Count incorrect user contexts
+  ansible.builtin.shell: |
+    # Count files with unconfined_u context (should be system_u)
+    unconfined_count=$(find {{ _podman_user_home | default(podman_user_home) }} -maxdepth 3 \
+      -context "*:unconfined_u:*" 2>/dev/null | wc -l)
+
+    # Count files without proper container contexts in storage
+    if [ -d "{{ _podman_user_home | default(podman_user_home) }}/.local/share/containers/storage" ]; then
+      storage_issues=$(find {{ _podman_user_home | default(podman_user_home) }}/.local/share/containers/storage \
+        -maxdepth 2 -type d \
+        ! -context "*:container_file_t:*" \
+        ! -context "*:container_ro_file_t:*" \
+        ! -context "*:container_var_lib_t:*" 2>/dev/null | wc -l)
+    else
+      storage_issues=0
+    fi
+
+    total=$((unconfined_count + storage_issues))
+    echo "$total"
+  args:
+    executable: /bin/bash
+  register: incorrect_contexts_count
+  changed_when: false
+
+- name: Check container storage contexts
+  ansible.builtin.shell: |
+    if [ -d "{{ _podman_user_home | default(podman_user_home) }}/.local/share/containers" ]; then
+      find {{ _podman_user_home | default(podman_user_home) }}/.local/share/containers \
+      -maxdepth 3 -type d -exec ls -ldZ {} \; | \
+      grep -E "(container_file_t|container_ro_file_t|container_var_lib_t)" | wc -l
+    else
+      echo "0"
+    fi
+  args:
+    executable: /bin/bash
+  register: correct_container_contexts
+  changed_when: false
+
+- name: Verify systemd contexts
+  ansible.builtin.shell: |
+    ls -laZ {{ _podman_user_home | default(podman_user_home) }}/.config/systemd/user/ 2>/dev/null | \
+    grep -c "systemd_home_t" || echo "0"
+  args:
+    executable: /bin/bash
+  register: systemd_contexts
+  changed_when: false
+
+- name: Generate SELinux validation report
+  ansible.builtin.set_fact:
+    selinux_report:
+      status: "{{ 'PASS' if incorrect_contexts_count.stdout | int == 0 and correct_container_contexts.stdout | int > 0 else 'FAIL' }}"
+      incorrect_contexts: "{{ incorrect_contexts_count.stdout }}"
+      container_contexts: "{{ correct_container_contexts.stdout }}"
+      systemd_contexts: "{{ systemd_contexts.stdout }}"
+      assessment: >-
+        {% if incorrect_contexts_count.stdout | int == 0 and correct_container_contexts.stdout | int > 0 %}
+        All SELinux contexts are properly configured
+        {% elif incorrect_contexts_count.stdout | int > 0 %}
+        Some files have incorrect contexts - restorecon may be needed
+        {% else %}
+        Container storage not yet initialized or contexts not applied
+        {% endif %}
+
+- name: Display SELinux validation report
+  ansible.builtin.debug:
+    msg:
+      - "SELinux Validation: {{ selinux_report.status }}"
+      - "Incorrect user contexts found: {{ selinux_report.incorrect_contexts }}"
+      - "Container directories with correct context: {{ selinux_report.container_contexts }}"
+      - "Systemd files with correct context: {{ selinux_report.systemd_contexts }}"
+      - "Assessment: {{ selinux_report.assessment }}"
+
+- name: Suggest fixes if validation failed
+  ansible.builtin.debug:
+    msg:
+      - "⚠️  SELinux contexts need attention!"
+      - "Run: restorecon -RvF {{ _podman_user_home | default(podman_user_home) }}"
+      - "Or re-run this playbook with the 'selinux' tag"
+  when: selinux_report.status == 'FAIL'

@@ -1,0 +1,41 @@
+# roles/redhat_podman/handlers/main.yml
+
+---
+- name: reload systemd for user
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i systemctl --user daemon-reload
+  args:
+    executable: /bin/bash
+  listen: "reload user systemd"
+
+- name: restart podman services
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i systemctl --user restart {{ item }}
+  args:
+    executable: /bin/bash
+  loop: "{{ podman_services_to_restart | default([]) }}"
+  listen: "restart podman services"
+
+- name: reset podman storage
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman system reset -f
+  args:
+    executable: /bin/bash
+  listen: "reset podman storage"
+  when: podman_force_storage_reset | default(false)
+
+- name: apply selinux contexts
+  ansible.builtin.command: >
+    restorecon -RvF {{ _podman_user_home | default(podman_user_home) }}
+  listen: "apply selinux contexts"
+
+# ===== NOUVEAUX HANDLERS =====
+
+- name: restart journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes

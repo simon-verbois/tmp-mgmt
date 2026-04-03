@@ -1,0 +1,8 @@
+# roles/tools/tasks/server_pre_decom_shutdown/main.yaml
+
+---
+- name: Include Centreon tasks
+  ansible.builtin.include_tasks: centreon/00_main.yaml
+
+- name: Include host tasks
+  ansible.builtin.include_tasks: host/00_main.yaml

@@ -1,0 +1,49 @@
+# roles/tools/tasks/server_decommission/ipa/main.yaml
+
+---
+- name: "IPA | Add IPA header in result mail" 
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.5em;">IPA</b>
+      </div>
+
+- name: "IPA | Ensure {{ inventory_hostname_short | lower }} entry and it's DNS record are absent"
+  delegate_to: "{{ current_ipa.value.servers[0] }}"
+  ignore_errors: true
+  redhat.rhel_idm.ipahost:
+    ipaadmin_principal: "{{ current_ipa.value.username }}"
+    ipaadmin_password: "{{ current_ipa.value.password }}"
+    name: "{{ inventory_hostname | lower }}"
+    state: absent
+    update_dns: true
+  register: hosts_deleted_list
+  loop: "{{ __ipa_infos|dict2items }}"
+  loop_control:
+    loop_var: current_ipa
+    label: "Sensitive data is hidden."
+  when: >
+    ('.'.join(inventory_hostname.split('.')[-2:]) in current_ipa.value.domain) or
+    ('rh.managed.local' in current_ipa.value.domain)
+
+- name: IPA | Compose final IPA mail content
+  ansible.builtin.set_fact:
+    mail_content: >-
+      {{ mail_content }}
+      {% if host.unreachable is defined and host.unreachable %}
+      ⚠️<b>ERROR: IPA is unreachable {{ host.current_ipa.key }}</b>
+      {% elif host.failed %}
+      ⚠️ <b>FAILED: Host {{ inventory_hostname_short | lower }} unregistration failed from {{ host.current_ipa.key }}</b>
+      {% elif host.changed %}
+      • <b>Host {{ inventory_hostname_short | lower }} correctly deleted from {{ host.current_ipa.key }}</b>
+      {% else %}
+      • Host {{ inventory_hostname_short | lower }} not found on {{ host.current_ipa.key }}
+      {% endif %}<br>
+  loop: "{{ hosts_deleted_list.results }}"
+  loop_control:
+    loop_var: host
+    label: "Sensitive data is hidden."
+  when: host.skipped is not defined

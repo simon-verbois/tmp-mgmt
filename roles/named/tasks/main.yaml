@@ -1,0 +1,10 @@
+# roles/named/tasks/main.yaml
+
+---
+- name: Include bind installation tasks
+  ansible.builtin.include_tasks: installation/main.yaml
+  when: INSTALLATION | default(false)
+
+- name: Include bind push config tasks
+  ansible.builtin.include_tasks: push_config/main.yaml
+  when: PUSH_CONFIG | default(false)

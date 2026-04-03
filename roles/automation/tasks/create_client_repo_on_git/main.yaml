@@ -1,0 +1,71 @@
+# roles/automation/tasks/create_client_repo_on_git/main.yaml
+
+---
+- name: "COLLECTING | Get Satellite locations"
+  ansible.builtin.include_tasks: collecting/satellite_locations.yaml
+
+- name: "SAFEGUARD | Ensure Satellite returned locations"
+  ansible.builtin.assert:
+    that:
+      - satellite_locations_list | length > 0
+    fail_msg: "CRITICAL: The Satellite locations list is empty! Stopping to prevent false orphans."
+    success_msg: "Satellite returned {{ satellite_locations_list | length }} locations."
+
+- name: "COLLECTING | Get GitLab repositories"
+  ansible.builtin.include_tasks: collecting/gitlab_repositories.yaml
+
+- name: "DIFF | Compute missing and orphan repositories"
+  ansible.builtin.set_fact:
+    missing_repo_on_gitlab: "{{ satellite_locations_list | difference(gitlab_repositories_list) }}"
+    orphan_repo_on_gitlab: "{{ gitlab_repositories_list | difference(satellite_locations_list) }}"
+
+- name: "REPO_MANAGEMENT | Create missing repositories"
+  ansible.builtin.include_tasks: repo_management/create_missing_repo.yaml
+
+- name: "NOTIFY | Format consolidated report email"
+  ansible.builtin.set_fact:
+    mail_subject: "[LAF] GitLab repositories synchronization report"
+    mail_body_content: |
+      {{ __mail_header }}
+      <br><br>
+      {% if created_repos | default([]) | length > 0 %}
+      <b>Repositories created:</b>
+      <ul>
+      {% for repo in created_repos %}
+        <li>{{ repo }}</li>
+      {% endfor %}
+      </ul>
+      {% endif %}
+      {% if orphan_repo_on_gitlab | length > 0 %}
+      <b>Orphan Gitlab Client Repositories, please delete these repos if they are decomissioned (no matching Satellite location)</b>
+      <ul>
+      {% for repo in orphan_repo_on_gitlab %}
+        <li>https://{{ __gitlab_fqdn }}/ict-las/clients/{{ repo }}</li>
+      {% endfor %}
+      </ul>
+      {% endif %}
+  delegate_to: localhost
+  run_once: true
+  when: >
+    (created_repos | default([]) | length > 0)
+    or (orphan_repo_on_gitlab | length > 0)
+
+- name: "NOTIFY | Send synchronization report"
+  community.general.mail:
+    host: "localhost"
+    port: "25"
+    sender: "{{ __mail_from }}"
+    to: "{{ mail_recipient }}"
+    subject: "{{ mail_subject }}"
+    body: "{{ mail_body_content }}"
+    charset: utf8
+    subtype: html
+  loop: "{{ __mail_to }}"
+  loop_control:
+    loop_var: mail_recipient
+  delegate_to: localhost
+  run_once: true
+  become: false
+  when: >
+    (created_repos | default([]) | length > 0)
+    or (orphan_repo_on_gitlab | length > 0)

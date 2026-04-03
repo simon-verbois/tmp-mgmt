@@ -1,0 +1,4 @@
+# roles/automation/defaults/main.yaml
+
+---
+problematic_repos: []

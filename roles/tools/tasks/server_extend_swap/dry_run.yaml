@@ -1,0 +1,117 @@
+# roles/tools/tasks/server_extend_swap/dry_run.yaml
+
+---
+- name: "DRY-RUN | Determine feasibility"
+  ansible.builtin.set_fact:
+    dry_run_ready: "{{ (swapoff_error is not defined) and ((vcenter_disk_add_gb | int == 0) or (vcenter_match_error is not defined and datastore_error is not defined)) }}"
+    dry_run_block_reason: "{{ swapoff_error | default(vcenter_match_error | default(datastore_error | default(''))) }}"
+
+- name: "DRY-RUN | Generate authorization token"
+  ansible.builtin.set_fact:
+    security_token: "{{ lookup('password', '/dev/null chars=ascii_uppercase,digits length=6') }}"
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Save token payload on target server"
+  ansible.builtin.copy:
+    content: "{{ {'token': security_token, 'swap_device': swap_info.swap_device, 'requested_add_size_gb': requested_add_size_gb | string} | to_json }}"
+    dest: "/tmp/swap_extension_token.json"
+    mode: '0600'
+  become: true
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Build feasibility report"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _swap_cur_gb: "{{ (swap_info.lv_size_bytes | float / 1073741824) | round(2) }}"
+    _swap_new_gb: "{{ (_swap_cur_gb | float + requested_add_size_gb | float) | round(2) }}"
+    _swap_used_gb: "{{ swapoff_detail.swap_used_gb }}"
+    _vg_size_gb: "{{ (swap_info.vg_size_bytes | float / 1073741824) | round(2) }}"
+    _vg_free_gb: "{{ (swap_info.vg_free_bytes | float / 1073741824) | round(2) }}"
+    _disk_size_gb: "{{ (swap_info.disk_size_bytes | float / 1073741824) | round(2) }}"
+    _ram_total_gb: "{{ (swap_info.ram_total_kb | float / 1048576) | round(2) }}"
+    _vcenter_needed: "{{ vcenter_disk_add_gb | int > 0 }}"
+    _vcenter_ok: "{{ vcenter_match_error is not defined }}"
+    _ds: "{{ datastore_info | default({}) }}"
+    _ds_ok: "{{ datastore_error is not defined }}"
+  ansible.builtin.set_fact:
+    dry_run_report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║             SWAP EXTENSION - FEASIBILITY REPORT              ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {{ "║  %-60s║" | format("Device:           " ~ swap_info.swap_device) }}
+      {{ "║  %-60s║" | format("Current Size:     " ~ _swap_cur_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("Requested:        +" ~ requested_add_size_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("New Size:         " ~ _swap_new_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("SWAP USAGE") }}
+      {{ "║  %-60s║" | format("Total:            " ~ (swap_info.swap_total_kb | float / 1048576) | round(2) | string ~ " GB") }}
+      {{ "║  %-60s║" | format("Used:             " ~ _swap_used_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("MEMORY (swapoff safety)") }}
+      {{ "║  %-60s║" | format("RAM Total:        " ~ _ram_total_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("RAM Available:    " ~ swapoff_detail.ram_available_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("RAM Required:     " ~ swapoff_detail.ram_required_gb ~ " GB (swap used x " ~ (1 + swapoff_detail.safety_pct | float / 100) | round(2) | string ~ ")") }}
+      {% if swapoff_safe | bool %}
+      {% set _headroom = (swapoff_detail.ram_available_gb | float - swapoff_detail.ram_required_gb | float) | round(2) %}
+      {{ "║  %-60s║" | format("Swapoff Safe:     YES (" ~ _headroom | string ~ " GB headroom)") }}
+      {% else %}
+      {{ "║  %-60s║" | format("Swapoff Safe:     NO") }}
+      {% endif %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("LVM TOPOLOGY") }}
+      {{ "║  %-60s║" | format("LV:               " ~ swap_info.lv_name ~ " (" ~ swap_info.swap_device ~ ")") }}
+      {{ "║  %-60s║" | format("VG:               " ~ swap_info.vg_name) }}
+      {{ "║  %-60s║" | format("VG Size:          " ~ _vg_size_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("VG Free:          " ~ _vg_free_gb ~ " GB") }}
+      {{ "║  %-60s║" | format("PV:               " ~ swap_info.pv_device) }}
+      {{ "║  %-60s║" | format("Base Disk:        /dev/" ~ swap_info.base_disk ~ " (" ~ _disk_size_gb ~ " GB)") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("VCENTER EXTENSION") }}
+      {% if not _vcenter_needed | bool %}
+      {{ "║  %-60s║" | format("Status:           NOT NEEDED (VG has enough free space)") }}
+      {% elif _vcenter_ok | bool %}
+      {% set _cur_gb = (matched_vm_disks[0].value.capacity_in_bytes | float / 1073741824) | round(2) %}
+      {% set _new_gb = (_cur_gb | round(0, 'ceil') | int) + (vcenter_disk_add_gb | int) %}
+      {{ "║  %-60s║" | format("Status:           REQUIRED (+" ~ vcenter_disk_add_gb ~ " GB)") }}
+      {{ "║  %-60s║" | format("Matched Disk:     " ~ matched_vm_disks[0].value.label ~ " (Unit: " ~ matched_vm_disks[0].value.unit_number ~ ")") }}
+      {{ "║  %-60s║" | format("Current Size:     " ~ _cur_gb | string ~ " GB") }}
+      {{ "║  %-60s║" | format("New Size:         " ~ _new_gb | string ~ " GB") }}
+      {{ "║  %-60s║" | format("Disk Type:        " ~ (matched_vm_disks[0].value.backing_diskmode | default('N/A'))) }}
+      {{ "║  %-60s║" | format("Thin Provisioned: " ~ (matched_vm_disks[0].value.backing_thinprovisioned | default('N/A'))) }}
+      {% else %}
+      {{ "║  %-60s║" | format("Status:           ERROR") }}
+      {{ "║  %-60s║" | format("Reason:           " ~ vcenter_match_error) }}
+      {% endif %}
+      {% if _vcenter_needed | bool and _vcenter_ok | bool %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("DATASTORE") }}
+      {{ "║  %-60s║" | format("Name:             " ~ _ds.get('name', 'N/A')) }}
+      {{ "║  %-60s║" | format("Type:             " ~ _ds.get('type', 'N/A')) }}
+      {{ "║  %-60s║" | format("Capacity:         " ~ _ds.get('capacity_gb', '?') ~ " GB") }}
+      {{ "║  %-60s║" | format("Free Now:         " ~ _ds.get('freeSpace_gb', '?') ~ " GB") }}
+      {{ "║  %-60s║" | format("Free After:       " ~ _ds.get('freeSpace_after_gb', '?') ~ " GB (" ~ _ds.get('freeSpace_after_pct', '?') ~ "%)") }}
+      {% if not _ds_ok | bool %}
+      {{ "║  %-60s║" | format("Status:           THRESHOLD EXCEEDED (<" ~ (datastore_min_free_pct | default(5)) ~ "%)") }}
+      {% else %}
+      {{ "║  %-60s║" | format("Status:           OK") }}
+      {% endif %}
+      {% endif %}
+      {{ _border }}
+      {% if dry_run_ready | bool %}
+      {{ "║ %-61s║" | format("VERDICT:          READY TO EXECUTE") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("TOKEN:            " ~ security_token) }}
+      {% else %}
+      {{ "║ %-61s║" | format("VERDICT:          BLOCKED") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("REASON:           " ~ dry_run_block_reason) }}
+      {% endif %}
+      ╚══════════════════════════════════════════════════════════════╝
+
+- name: "DRY-RUN | Display feasibility report"
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ dry_run_report }}"
+
+- name: "DRY-RUN | Stop execution"
+  ansible.builtin.meta: end_play

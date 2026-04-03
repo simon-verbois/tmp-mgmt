@@ -1,0 +1,15 @@
+# roles/tools/tasks/server_extend_swap/checks/calculate_vcenter_need.yaml
+
+---
+- name: "CALC | Determine vCenter disk extension requirement"
+  ansible.builtin.set_fact:
+    vcenter_disk_add_gb: >-
+      {%- set requested_gb = requested_add_size_gb | float -%}
+      {%- set buffer_gb = 1.0 -%}
+      {%- set required_total_gb = requested_gb + buffer_gb -%}
+      {%- set current_free_gb = (swap_info.vg_free_bytes | float / 1073741824) -%}
+      {%- if current_free_gb >= required_total_gb -%}
+        0
+      {%- else -%}
+        {{ (required_total_gb - current_free_gb) | round(0, 'ceil') | int }}
+      {%- endif -%}

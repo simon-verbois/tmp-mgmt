@@ -1,0 +1,19 @@
+# roles/tools/vars/server_manual_patching.yaml
+
+---
+__rhel_patching_repositories:
+  "7":
+    - "rhel-7-server-rpms"
+    - "rhel-7-server-extras-rpms"
+    - "rhel-7-server-optional-rpms"
+    - "rhel-7-server-els-rpms"
+    - "rhel-7-server-els-optional-rpms"
+    - "rhel-7-server-satellite-tools-6.8-rpms"
+  "8":
+    - "satellite-tools-6.8-for-rhel-8-x86_64-rpms"
+    - "rhel-8-for-x86_64-baseos-rpms"
+    - "rhel-8-for-x86_64-appstream-rpms"
+  "9":
+    - "rhel-9-for-x86_64-baseos-rpms"
+    - "rhel-9-for-x86_64-appstream-rpms"
+    - "satellite-client-6-for-rhel-9-x86_64-rpms"

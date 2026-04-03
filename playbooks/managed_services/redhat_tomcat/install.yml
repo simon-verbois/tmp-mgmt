@@ -1,0 +1,14 @@
+---
+- name: Playbook to install Tomcat
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_tomcat/install.yml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    INSTALL_TOMCAT: true
+
+  roles:
+    - common
+    - redhat_tomcat

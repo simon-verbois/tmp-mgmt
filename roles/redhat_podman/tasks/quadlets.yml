@@ -1,0 +1,87 @@
+# roles/redhat_podman/tasks/quadlets.yml
+
+---
+- name: Ensure user info is loaded
+  ansible.builtin.include_tasks: common_user_info.yml
+
+# --- Étape 2 : Préparation répertoires ---
+- name: Ensure Quadlet systemd directory exists
+  ansible.builtin.file:
+    path: "{{ podman_user_fact.home }}/.config/systemd/user"
+    state: directory
+    owner: "{{ podman_user_fact.name }}"
+    group: "{{ podman_user_fact.gid }}"
+    mode: '0755'
+    recurse: true
+
+- name: Create containers systemd directory
+  ansible.builtin.file:
+    path: "{{ podman_user_fact.home }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user_fact.name }}"
+    group: "{{ podman_user_fact.gid }}"
+    mode: '0755'
+    recurse: true
+
+# --- Étape 3 : Déploiement Fichiers ---
+- name: Check if Quadlet files exist on the controller
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/quadlets/{{ item }}"
+  loop: "{{ podman_quadlet_files }}"
+  register: quadlet_file_check
+  run_once: true
+
+- name: Fail if Quadlet files are missing
+  delegate_to: localhost
+  run_once: true
+  ansible.builtin.fail:
+    msg: "Quadlet file not found on controller: {{ item.item }}"
+  loop: "{{ quadlet_file_check.results }}"
+  when: not item.stat.exists
+
+- name: Deploy Quadlet files
+  ansible.builtin.copy:
+    src: "quadlets/{{ item }}"
+    dest: "{{ podman_user_fact.home }}/.config/containers/systemd/{{ item }}"
+    owner: "{{ podman_user_fact.name }}"
+    group: "{{ podman_user_fact.gid }}"
+    mode: '0644'
+  loop: "{{ podman_quadlet_files }}"
+  register: quadlet_deployment
+  notify: reload user systemd
+
+# --- Étape 4 : Activation Services ---
+# On force l'exécution du handler maintenant pour que systemd voit les nouveaux fichiers
+- name: Flush handlers to load new Quadlets
+  ansible.builtin.meta: flush_handlers
+
+- name: Generate service names list
+  ansible.builtin.set_fact:
+    quadlet_services: "{{ podman_quadlet_files | map('splitext') | map('first') | map('regex_replace', '$', '.service') | list }}"
+
+- name: Start Quadlet services
+  ansible.builtin.command: "sudo -u {{ podman_service_account_name }} -i systemctl --user start {{ item }}"
+  loop: "{{ quadlet_services }}"
+  register: service_start
+  changed_when: service_start.rc == 0
+
+- name: Wait for services to stabilize
+  ansible.builtin.pause:
+    seconds: 5
+  when: service_start.changed
+
+- name: Check status
+  ansible.builtin.command: "sudo -u {{ podman_service_account_name }} -i systemctl --user is-active {{ item }}"
+  loop: "{{ quadlet_services }}"
+  register: service_status
+  changed_when: false
+  failed_when: false
+
+- name: Display summary
+  ansible.builtin.debug:
+    msg: |
+      Quadlet Status:
+      {% for item in service_status.results %}
+      - {{ item.item }}: {{ 'ACTIVE' if item.rc == 0 else 'FAILED' }}
+      {% endfor %}

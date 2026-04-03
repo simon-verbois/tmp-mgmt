@@ -1,0 +1,13 @@
+# roles/elastic_agent/defaults/main.yaml
+
+---
+__elastic_console_url: "https://urlto.elastic.com:443"
+__elastic_enrollment_token: "tokentoregistergivedbyclient"  
+#__elastic_proxy_url: "http://fortiproxy.casc.local:8080"
+
+# General
+__elastic_agent_tarball: "elastic-agent-9.3.0-linux-x86_64.tar.gz"
+__internal_depot_url: "http://yumrepos.csv.local/depot"
+__tmp_elastic_directory: "/opt/elastic_agent_tmp"
+__default_vg: "vg_data"
+

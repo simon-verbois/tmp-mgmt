@@ -1,0 +1,120 @@
+# roles/redhat_idm/tasks/setup/tasks/04_users.yaml
+
+---
+- name: Filter Human Users from deep_data
+  set_fact:
+    human_users_to_create: >-
+      {{
+        deep_data | dict2items 
+        | selectattr('key', 'in', groups_to_add) 
+        | subelements('value.users') 
+        | map(attribute='1') | list
+      }}
+
+- name: Generate credentials for Humans
+  set_fact:
+    human_credentials: >-
+      {{
+        human_credentials | default([]) + [
+          item | combine({'password': lookup('community.general.random_string', length=20, override_special='%()+-/=?^_')})
+        ]
+      }}
+  loop: "{{ human_users_to_create }}"
+  no_log: true
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Create Human User Accounts in IDM
+  redhat.rhel_idm.ipauser:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.user }}"
+    first: "{{ item.first }}"
+    last: "{{ item.last }}"
+    email: "{{ item.email }}"
+    sshpubkey: "{{ [item.pubkey] if (item.pubkey is defined and item.pubkey | length > 0) else omit }}"
+    password: "{{ item.password }}"
+    update_password: on_create
+    state: present
+  loop: "{{ human_credentials }}"
+  no_log: true
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Map Humans to their Team Groups
+  redhat.rhel_idm.ipagroup:
+    name: "{{ item.value.user_group }}"
+    user: "{{ item.value.users | map(attribute='user') | list }}"
+    action: member
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    state: present
+  loop: "{{ deep_data | dict2items | selectattr('key', 'in', groups_to_add) | list }}"
+
+- name: Link Team Groups to IDM Admins
+  redhat.rhel_idm.ipagroup:
+    name: admins
+    group: "{{ item.value.user_group }}"
+    action: member
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    state: present
+  loop: "{{ deep_data | dict2items | selectattr('key', 'in', groups_to_add) | list }}"
+  when: item.value.ipa_admin | bool
+
+###############################
+## 2. SERVICE ACCOUNTS       ##
+###############################
+
+- name: Generate credentials for Service Accounts
+  set_fact:
+    svc_credentials: >-
+      {{
+        svc_credentials | default([]) + [
+          item | combine({
+            'password': lookup('community.general.random_string', length=20, override_special='%()+-/=?^_'),
+            'first': item.first | default('Service'),
+            'last': item.last | default('Account'),
+            'email': item.email | default('admin@deep.eu')
+          })
+        ]
+      }}
+  loop: "{{ service_accounts }}"
+  no_log: true
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Create Service Accounts in IDM
+  redhat.rhel_idm.ipauser:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.user }}"
+    first: "{{ item.first }}"
+    last: "{{ item.last }}"
+    email: "{{ item.email }}"
+    password: "{{ item.password }}"
+    update_password: on_create
+    state: present
+  loop: "{{ svc_credentials }}"
+  no_log: true
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Set 50-year expiration for Service Accounts
+  redhat.rhel_idm.ipauser:
+    name: "{{ item.user }}"
+    principalexpiration: "{{ '%Y%m%d%H%M%S' | strftime( (now().strftime('%s') | int) + (50 * 365 * 24 * 3600) ) }}Z"
+    krbpasswordexpiration: "{{ '%Y%m%d%H%M%S' | strftime( (now().strftime('%s') | int) + (50 * 365 * 24 * 3600) ) }}Z"
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    state: present
+  loop: "{{ svc_credentials }}"
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Add Service Accounts to admins and maxlife groups
+  redhat.rhel_idm.ipagroup:
+    name: "{{ svc_item.1 }}"
+    user: "{{ svc_item.0.user }}"
+    action: member
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    state: present
+  loop: "{{ svc_credentials | product(['admins', 'maxlife']) | list }}"
+  loop_control:
+    loop_var: svc_item
+    label: "{{ svc_item.0.user }} -> {{ svc_item.1 }}"

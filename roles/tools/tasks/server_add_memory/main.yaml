@@ -1,0 +1,50 @@
+# roles/tools/tasks/server_add_memory/main.yaml
+
+---
+- name: "Determine run mode"
+  ansible.builtin.set_fact:
+    dry_run: "{{ auth_token is not defined or auth_token | length == 0 }}"
+
+- name: "Assert required variables"
+  ansible.builtin.assert:
+    that:
+      - requested_memory_gb is defined
+      - requested_memory_gb | int > 0
+    fail_msg: "Variable 'requested_memory_gb' must be defined as a whole number greater than 0."
+
+- name: "Convert requested memory to MB"
+  ansible.builtin.set_fact:
+    requested_memory_mb: "{{ (requested_memory_gb | int * 1024) | int }}"
+
+- name: "Gather OS memory info"
+  ansible.builtin.include_tasks: checks/gather_memory_info.yaml
+
+- name: "Gather vCenter memory configuration"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "get_memory_info"
+
+- name: "Validate memory extension request"
+  ansible.builtin.include_tasks: checks/validate_memory_request.yaml
+
+- name: "Abort execution if validation failed"
+  ansible.builtin.fail:
+    msg: "{{ memory_validation_error }}"
+  when:
+    - not dry_run | bool
+    - memory_validation_error is defined
+
+- name: "Include dry-run report and stop"
+  ansible.builtin.include_tasks: dry_run.yaml
+  when: dry_run | bool
+
+- name: "Verify authorization token"
+  ansible.builtin.include_tasks: checks/verify_token.yaml
+
+- name: "Extend memory on vCenter"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "extend_memory"
+
+- name: "Bring new memory online on the OS"
+  ansible.builtin.include_tasks: host/online_memory.yaml

@@ -1,0 +1,52 @@
+# roles/tools/tasks/server_add_memory/checks/validate_memory_request.yaml
+
+---
+- name: "VALIDATE | Check VM was found on vCenter"
+  ansible.builtin.set_fact:
+    memory_validation_error: "VM not found on any vCenter"
+  when: vcenter_mem_info is not defined
+
+- name: "VALIDATE | Check hot-add is enabled"
+  ansible.builtin.set_fact:
+    memory_validation_error: "Memory hot-add is not enabled on this VM"
+  when:
+    - memory_validation_error is not defined
+    - not vcenter_mem_info.hot_add_enabled | bool
+
+- name: "VALIDATE | Check requested > current"
+  ansible.builtin.set_fact:
+    memory_validation_error: >-
+      Cannot reduce memory via hot-add
+      (current: {{ vcenter_mem_info.memory_mb }} MB, requested: {{ requested_memory_mb }} MB)
+  when:
+    - memory_validation_error is not defined
+    - requested_memory_mb | int <= vcenter_mem_info.memory_mb | int
+
+- name: "VALIDATE | Check hardware version max memory limit"
+  vars:
+    _hw_max_mb: "{{ vcenter_mem_info.hw_max_memory_mb | int }}"
+  ansible.builtin.set_fact:
+    memory_validation_error: "Exceeds HW version limit ({{ (_hw_max_mb | int / 1024) | int }} GB max)"
+  when:
+    - memory_validation_error is not defined
+    - requested_memory_mb | int > _hw_max_mb | int
+
+- name: "VALIDATE | Check OS / vCenter memory consistency"
+  vars:
+    _os_mem_mb: "{{ (os_mem_info.mem_total_kb | float / 1024) | round(0) | int }}"
+    _vc_mem_mb: "{{ vcenter_mem_info.memory_mb | int }}"
+    _diff_mb: "{{ (_vc_mem_mb | int - _os_mem_mb | int) | abs }}"
+  ansible.builtin.set_fact:
+    mem_os_vcenter_mismatch: true
+  when:
+    - memory_validation_error is not defined
+    - _diff_mb | int > 512
+
+- name: "VALIDATE | Build validation summary"
+  ansible.builtin.set_fact:
+    memory_validation:
+      hot_add: "{{ vcenter_mem_info.hot_add_enabled | default(false) | bool }}"
+      increase: "{{ requested_memory_mb | int > vcenter_mem_info.memory_mb | default(0) | int }}"
+      hw_limit_ok: "{{ requested_memory_mb | int <= vcenter_mem_info.hw_max_memory_mb | default(1048576) | int }}"
+      os_vcenter_match: "{{ not (mem_os_vcenter_mismatch | default(false) | bool) }}"
+  when: vcenter_mem_info is defined

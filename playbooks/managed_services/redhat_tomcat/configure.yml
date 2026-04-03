@@ -1,0 +1,14 @@
+---
+- name: Playbook to configure Tomcat
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_tomcat/configure.yml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    CONFIGURE_TOMCAT: true
+
+  roles:
+    - common
+    - redhat_tomcat

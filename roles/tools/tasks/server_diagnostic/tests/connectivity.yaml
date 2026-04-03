@@ -1,0 +1,113 @@
+# roles/tools/tasks/server_diagnostic/tests/connectivity.yaml
+
+---
+- name: "Add connectivity header"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.3em;">Connectivity</b>
+      </div>
+
+- block:
+    - name: Resolve target IP locally
+      ansible.builtin.shell: "dig +short {{ target_server }} | tail -n1"
+      register: resolved_ip_raw
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Set resolved IP facts
+      ansible.builtin.set_fact:
+        resolved_ip: "{{ resolved_ip_raw.stdout if resolved_ip_raw.stdout != '' else target_server }}"
+
+    - block:
+        - name: Gather facts (SSH check)
+          ansible.builtin.setup:
+          delegate_to: "{{ target_server }}"
+          register: target_facts
+          
+        - name: Set SSH facts
+          ansible.builtin.set_fact:
+            ansible_facts: "{{ target_facts.ansible_facts }}"
+            is_ssh_ok: true
+
+        - name: Collect interface IPs via nmcli
+          ansible.builtin.shell: nmcli -t -f IP4.ADDRESS device show | grep -oP '(?<=:)[0-9.]+/[0-9]+' | grep -v '^127\.'
+          delegate_to: "{{ target_server }}"
+          become: true
+          register: nmcli_result
+          ignore_errors: true
+
+        - name: Set found IPs from server
+          ansible.builtin.set_fact:
+            found_ips: "{{ nmcli_result.stdout_lines | join(', ') if nmcli_result.rc == 0 else resolved_ip }}"
+      rescue:
+        - name: Set SSH failure and fallback IP
+          ansible.builtin.set_fact:
+            is_ssh_ok: false
+            found_ips: "{{ resolved_ip }}"
+
+    - name: Ping resolved IP
+      ansible.builtin.shell: "ping {{ resolved_ip }} -c 1 -w 1"
+      delegate_to: tower.csv.local
+      become: true
+      register: ping_check
+      ignore_errors: true
+      changed_when: false
+          
+    - name: Set connectivity flags
+      ansible.builtin.set_fact:
+        is_ping_ok: "{{ ping_check.rc == 0 }}"
+
+    - name: Define connectivity status properties
+      ansible.builtin.set_fact:
+        conn_status_color: "{{ '#5cb85c' if (is_ssh_ok and is_ping_ok) else '#d9534f' }}"
+        conn_status_label: "{{ 'CONNECTED' if is_ssh_ok else 'UNREACHABLE' }}"
+        conn_status_message: >-
+          {{ 'Server is reachable and responding to SSH.' if is_ssh_ok 
+             else 'The server is not responding to SSH requests. Critical action required.' }}
+
+    - name: Add Connectivity Status Summary Box
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid {{ conn_status_color }}; padding: 10px; border-radius: 5px; background-color: {{ conn_status_color }}05; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em; font-family: sans-serif;">
+            <div style="text-align: center; margin-bottom: 8px;">
+              <b style="font-size: 1.1em; color: {{ conn_status_color }}; text-transform: uppercase;">Status: {{ conn_status_label }}</b><br>
+              <span style="color: #555;">{{ conn_status_message }}</span>
+            </div>
+            
+            <div style="margin-bottom: 4px; padding: 5px 10px; border-radius: 3px;">
+              <b style="font-size: 0.85em; color: #333;">Support Checklist:</b><br>
+              <span style="font-size: 0.85em;">
+                {{ '✅' if is_ssh_ok else '❌' }} SSH Connectivity (Port 22)<br>
+                {{ '✅' if is_ping_ok else '❌' }} ICMP Ping Response
+              </span>
+              <div style="text-align: right; margin: 0; padding: 0;">
+                <a href="https://centreon.csv.local/centreon/monitoring/resources?filter=%7B%22criterias%22%3A%5B%7B%22name%22%3A%22search%22%2C%22value%22%3A%22{{ target_server | urlencode }}%22%7D%5D%7D" 
+                  style="background-color: #333; color: white; padding: 4px 10px; text-decoration: none; border-radius: 3px; font-size: 0.75em; font-weight: bold; display: inline-block; vertical-align: middle;">
+                  VIEW ON CENTREON
+                </a>
+              </div>
+            </div>
+
+            <div style="border-top: 1px dashed #ccc; padding-top: 5px; margin-top: 4px; font-size: 0.8em; color: #666; text-align: center;">
+              <b>IP Address:</b> {{ found_ips }}
+            </div>
+          </div>
+
+    - name: Stop execution if SSH is down
+      ansible.builtin.fail:
+        msg: "Target server {{ target_server }} is unreachable via SSH. Diagnostic stopped."
+      when: not is_ssh_ok
+
+  rescue:
+    - name: Handle connectivity logic failure
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid #d9534f; padding: 10px; text-align: center; width: 95%; margin: 0 auto;">
+            <b style="color: #d9534f;">⚠️ CRITICAL: Connectivity check failed to execute.</b>
+          </div>

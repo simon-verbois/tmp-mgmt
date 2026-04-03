@@ -1,0 +1,14 @@
+---
+- name: Playbook to install Splunk forwarder
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/splunk_forwarder/installation.yaml -i clients/XXXX/hosts.ini -l sv-xxxxlvuxx.rh.xxxx.local
+
+  vars:
+    INSTALL_SPLUNK_FORWARDER: true
+
+  roles:
+    - common
+    - splunk_forwarder

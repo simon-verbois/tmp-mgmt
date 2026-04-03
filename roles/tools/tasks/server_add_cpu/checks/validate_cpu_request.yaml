@@ -1,0 +1,62 @@
+# roles/tools/tasks/server_add_cpu/checks/validate_cpu_request.yaml
+
+---
+- name: "VALIDATE | Check VM was found on vCenter"
+  ansible.builtin.set_fact:
+    cpu_validation_error: "VM not found on any vCenter"
+  when: vcenter_cpu_info is not defined
+
+- name: "VALIDATE | Check hot-add is enabled"
+  ansible.builtin.set_fact:
+    cpu_validation_error: "CPU hot-add is not enabled on this VM"
+  when:
+    - cpu_validation_error is not defined
+    - not vcenter_cpu_info.hot_add_enabled | bool
+
+- name: "VALIDATE | Check requested > current"
+  ansible.builtin.set_fact:
+    cpu_validation_error: >-
+      Cannot reduce CPUs via hot-add
+      (current: {{ vcenter_cpu_info.num_cpus }}, requested: {{ requested_cpu_count }})
+  when:
+    - cpu_validation_error is not defined
+    - requested_cpu_count | int <= vcenter_cpu_info.num_cpus | int
+
+- name: "VALIDATE | Check cores_per_socket alignment"
+  vars:
+    _cores_per_socket: "{{ vcenter_cpu_info.cores_per_socket | int }}"
+    _remainder: "{{ requested_cpu_count | int % _cores_per_socket | int }}"
+  ansible.builtin.set_fact:
+    cpu_validation_error: >-
+      {{ requested_cpu_count }} is not divisible by {{ _cores_per_socket }} cores/socket.
+      Valid values: {{ ((requested_cpu_count | int / _cores_per_socket | int) | int) * _cores_per_socket | int }},
+      {{ (((requested_cpu_count | int / _cores_per_socket | int) | int) + 1) * _cores_per_socket | int }}
+  when:
+    - cpu_validation_error is not defined
+    - _remainder | int != 0
+
+- name: "VALIDATE | Check hardware version max CPU limit"
+  vars:
+    _hw_max: "{{ vcenter_cpu_info.hw_max_cpus | int }}"
+  ansible.builtin.set_fact:
+    cpu_validation_error: "Exceeds HW version limit ({{ _hw_max }} vCPUs max)"
+  when:
+    - cpu_validation_error is not defined
+    - requested_cpu_count | int > _hw_max | int
+
+- name: "VALIDATE | Check OS / vCenter CPU count consistency"
+  ansible.builtin.set_fact:
+    cpu_os_vcenter_mismatch: true
+  when:
+    - cpu_validation_error is not defined
+    - os_cpu_info.cpu_online | int != vcenter_cpu_info.num_cpus | int
+
+- name: "VALIDATE | Build validation summary"
+  ansible.builtin.set_fact:
+    cpu_validation:
+      hot_add: "{{ vcenter_cpu_info.hot_add_enabled | default(false) | bool }}"
+      increase: "{{ requested_cpu_count | int > vcenter_cpu_info.num_cpus | default(0) | int }}"
+      socket_aligned: "{{ (requested_cpu_count | int % vcenter_cpu_info.cores_per_socket | default(1) | int) == 0 }}"
+      hw_limit_ok: "{{ requested_cpu_count | int <= vcenter_cpu_info.hw_max_cpus | default(128) | int }}"
+      os_vcenter_match: "{{ os_cpu_info.cpu_online | int == vcenter_cpu_info.num_cpus | default(0) | int }}"
+  when: vcenter_cpu_info is defined

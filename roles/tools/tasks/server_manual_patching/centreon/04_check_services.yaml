@@ -1,0 +1,39 @@
+# roles/tools/tasks/server_manual_patching/centreon/04_check_services.yaml
+
+---
+- name: "CENTREON | Get services status for the host"
+  ansible.builtin.uri:
+    url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/hosts/{{ centreon_host_id }}/services"
+    method: GET
+    headers:
+      X-AUTH-TOKEN: "{{ __centreon_token }}"
+  register: host_services_response
+  delegate_to: localhost
+  become: false
+
+- name: "CENTREON | Filter KO services (Critical/Warning/Unknown) < 5h"
+  ansible.builtin.set_fact:
+    ko_services_list: "{{ ko_services_raw | from_yaml }}"
+  vars:
+    ko_services_raw: |
+      {% set results = [] %}
+      {% set threshold_epoch = (ansible_date_time.epoch | int) - (5 * 3600) %}
+      {% set threshold_dt = '%Y-%m-%dT%H:%M:%S' | strftime(threshold_epoch) | to_datetime('%Y-%m-%dT%H:%M:%S') %}
+      {% for svc in (host_services_response.json.result | default([])) %}
+      {%   if svc.status is defined and svc.status.code != 0 %}
+      {%     set last_change = svc.last_state_change | default('') %}
+      {%     if last_change != '' %}
+      {%       set last_change_dt = last_change[:19] | to_datetime('%Y-%m-%dT%H:%M:%S') %}
+      {%       if last_change_dt > threshold_dt %}
+      {%         set _ = results.append(svc.description) %}
+      {%       endif %}
+      {%     endif %}
+      {%   endif %}
+      {% endfor %}
+      {{ results | to_yaml }}
+
+- name: "CENTREON | Update host_csv_data with KO services"
+  ansible.builtin.set_fact:
+    host_csv_data: "{{ host_csv_data | combine({
+        'centreon_service_ko': ko_services_list | join(', ') | trim
+      }) }}"

@@ -1,0 +1,46 @@
+# roles/azure_arc/defaults/main.yaml
+
+---
+__azurearc_vg_name: "vg_data"
+__azurearc_disk_size_gb: 4
+__azurearc_lv_azcmagent_size_gb: 2
+__azurearc_lv_guestconfig_size_gb: 2
+__azurearc_mount_azcmagent: "/var/opt/azcmagent"
+__azurearc_mount_guestconfig: "/var/lib/GuestConfig"
+__azurearc_lv_azcmagent: "lv_azcmagent"
+__azurearc_lv_guestconfig: "lv_guestconfig"
+
+# Repository
+__azurearc_repo_url: "http://yumrepos.csv.local/repos/lin/Azure/azure_arc/"
+__azurearc_repo_gpgkey: "http://yumrepos.csv.local/repos/lin/Azure/azure_arc/gpg"
+
+# Packages
+__azurearc_packages_list:
+  - "azcmagent"
+
+__azurearc_requirements_list:
+  - "python3"
+  - "curl"
+  - "openssl"
+
+# Network settings
+__azurearc_proxy_url: ""
+
+# Azure Arc connection
+__azurearc_subscription_id: ""
+__azurearc_resource_group: ""
+__azurearc_tenant_id: ""
+__azurearc_location: ""
+__azurearc_cloud: ""
+__azurearc_correlation_id: ""
+
+# Authentication (store in Ansible Vault)
+__azurearc_sp_id: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;client_data
+          xxxxxxxxxxxxxxxxxxxxx
+__azurearc_sp_secret: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;client_data
+          xxxxxxxxxxxxxxxxxxxxx
+
+# Tags
+__azurearc_tags: ""

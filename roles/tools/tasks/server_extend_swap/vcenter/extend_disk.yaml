@@ -1,0 +1,43 @@
+# roles/tools/tasks/server_extend_swap/vcenter/extend_disk.yaml
+
+---
+- name: "VCENTER | Extend disk block"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done | default(false)
+  block:
+    - name: "VCENTER | Search VM"
+      ansible.builtin.include_tasks:
+        file: search_vm.yaml
+
+    - name: "VCENTER | Calculate new total disk size"
+      ansible.builtin.set_fact:
+        current_disk_size_gb: "{{ (matched_vm_disks[0].value.capacity_in_bytes | float / 1073741824) | round(0, 'ceil') | int }}"
+
+    - name: "VCENTER | Set new target size"
+      ansible.builtin.set_fact:
+        new_total_size_gb: "{{ current_disk_size_gb | int + vcenter_disk_add_gb | int }}"
+
+    - name: "VCENTER | Execute disk extension"
+      community.vmware.vmware_guest_disk:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+        disk:
+          - scsi_controller: "{{ matched_vm_disks[0].value.controller_bus_number }}"
+            unit_number: "{{ matched_vm_disks[0].value.unit_number }}"
+            size_gb: "{{ new_total_size_gb }}"
+            state: present
+      register: disk_extension_result
+
+    - name: "VCENTER | Break loop"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | Extension failed or VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "VM not found on {{ current_vcenter.value.url }} or extension failed. Check error above."

@@ -1,0 +1,94 @@
+# roles/automation/tasks/sync_git_client_repo_to_aap/processing/configure_inventory.yaml
+
+---
+- name: "VARS | Define Inventory Names"
+  ansible.builtin.set_fact:
+    repo_name: "{{ gitlab_project.name }}"
+    inv_suffix: "{{ ini_file.path | basename | splitext | first }}"
+  
+- name: "VARS | Define Final Inventory Name"
+  ansible.builtin.set_fact:
+    tower_project_name: "[LAF-CLIENT] {{ repo_name }}"
+    tower_inv_name: "[LAF-CLIENT] {{ repo_name }} - {{ inv_suffix }}"
+    source_name: "Sourced from Project {{ repo_name }}"
+
+# 2. Création de l'Inventaire
+- name: "TOWER | Ensure Inventory '{{ tower_inv_name }}' exists"
+  delegate_to: localhost
+  ansible.controller.inventory:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    name: "{{ tower_inv_name }}"
+    organization: "Linux"
+    state: present
+
+# 3. Création de la Source
+- name: "TOWER | Configure Inventory Source linked to Project"
+  delegate_to: localhost
+  ansible.controller.inventory_source:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    name: "{{ source_name }}"
+    inventory: "{{ tower_inv_name }}"
+    organization: "Linux"
+    source: scm
+    source_project: "{{ tower_project_name }}"
+    source_path: "{{ ini_file.path | basename }}"
+    overwrite: yes
+    overwrite_vars: yes
+    update_on_launch: no
+    state: present
+  register: tower_inv_source_result
+
+# 4. Patch API
+- name: "TOWER API | Force enable 'Update on Project Update'"
+  delegate_to: localhost
+  ansible.builtin.uri:
+    url: "https://{{ __tower_https_url | regex_replace('^https?://', '') | regex_replace('/$', '') }}/api/v2/inventory_sources/{{ tower_inv_source_result.id }}/"
+    method: PATCH
+    user: "{{ __tower_svc_user }}"
+    password: "{{ __tower_svc_token }}"
+    force_basic_auth: yes
+    validate_certs: no
+    body_format: json
+    body:
+      update_on_project_update: true
+    status_code: [200, 201]
+  when: tower_inv_source_result.id is defined
+
+# 5. Sync Initiale (Check d'erreur systématique)
+- name: "TOWER | Trigger Initial Inventory Sync"
+  delegate_to: localhost
+  ansible.controller.inventory_source_update:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    name: "{{ source_name }}"
+    inventory: "{{ tower_inv_name }}"
+    organization: "Linux"
+    wait: yes
+  register: sync_result
+  ignore_errors: yes 
+
+# 6. Capture de l'erreur
+- name: "ERROR | Capture Failure for Reporting"
+  block:
+    - name: "DEBUG | Confirming Error Capture"
+      ansible.builtin.debug:
+        msg: "!!! ERREUR DÉTECTÉE SUR {{ tower_inv_name }} - Ajout au rapport !!!"
+
+    - name: "SET FACT | Update problematic_repos list"
+      ansible.builtin.set_fact:
+        problematic_repos: "{{ problematic_repos + [ tower_inv_name ~ ' (FAILED: Check INI syntax)' ] }}"
+        cacheable: yes 
+  when: sync_result is failed
+
+# 7. REGISTER - Ajout à la liste blanche
+- name: "REGISTER | Add inventory to valid list"
+  ansible.builtin.set_fact:
+    valid_tower_inventories: "{{ valid_tower_inventories + [tower_inv_name] }}"

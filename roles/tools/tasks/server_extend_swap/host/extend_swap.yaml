@@ -1,0 +1,76 @@
+# roles/tools/tasks/server_extend_swap/host/extend_swap.yaml
+
+---
+- name: "HOST | Record BEFORE state"
+  ansible.builtin.shell: |
+    lvs --noheadings -o lv_size --units b --nosuffix "{{ swap_info.swap_device }}" | tr -d ' '
+  become: true
+  register: state_before
+  changed_when: false
+
+- name: "HOST | Deactivate swap on {{ swap_info.swap_device }}"
+  ansible.builtin.command: "swapoff {{ swap_info.swap_device }}"
+  become: true
+
+- name: "HOST | Hardware rescan, partition grow and PV resize"
+  become: true
+  when: vcenter_disk_add_gb | int > 0
+  ansible.builtin.shell: |
+    set -e
+    BASE_DISK="/dev/{{ swap_info.base_disk }}"
+    PV_DEVICE="{{ swap_info.pv_device }}"
+
+    echo 1 > /sys/class/block/{{ swap_info.base_disk }}/device/rescan
+    sleep 2
+
+    if [ "$BASE_DISK" != "$PV_DEVICE" ]; then
+      PART_NUM=$(echo "$PV_DEVICE" | sed -e "s|$BASE_DISK||" -e "s|^p||")
+      parted -s "$BASE_DISK" resizepart "$PART_NUM" 100%
+      partprobe "$BASE_DISK"
+      sleep 2
+    fi
+
+    pvresize "$PV_DEVICE"
+
+- name: "HOST | Extend swap LV by {{ requested_add_size_gb }} GB"
+  ansible.builtin.command: "lvextend -L +{{ requested_add_size_gb }}G {{ swap_info.swap_device }}"
+  become: true
+
+- name: "HOST | Recreate swap signature"
+  ansible.builtin.command: "mkswap {{ swap_info.swap_device }}"
+  become: true
+
+- name: "HOST | Reactivate swap on {{ swap_info.swap_device }}"
+  ansible.builtin.command: "swapon {{ swap_info.swap_device }}"
+  become: true
+
+- name: "HOST | Record AFTER state"
+  ansible.builtin.shell: |
+    lvs --noheadings -o lv_size --units b --nosuffix "{{ swap_info.swap_device }}" | tr -d ' '
+  become: true
+  register: state_after
+  changed_when: false
+
+- name: "HOST | Extension summary"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _before_gb: "{{ (state_before.stdout | trim | float / 1073741824) | round(2) }}"
+    _after_gb: "{{ (state_after.stdout | trim | float / 1073741824) | round(2) }}"
+    _report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║             SWAP EXTENSION - EXECUTION REPORT                ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {{ "║  %-60s║" | format("Device:           " ~ swap_info.swap_device) }}
+      {{ "║  %-60s║" | format("Extended:         +" ~ requested_add_size_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("BEFORE") }}
+      {{ "║  %-60s║" | format("Size: " ~ _before_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("AFTER") }}
+      {{ "║  %-60s║" | format("Size: " ~ _after_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("STATUS:           OK") }}
+      ╚══════════════════════════════════════════════════════════════╝
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ _report }}"

@@ -1,0 +1,17 @@
+# roles/tools/tasks/clean_sssd_cache/main.yaml
+
+---
+- name: Deploy SSSD clean cache script
+  ansible.builtin.copy:
+    src: sssd-clean-cache.sh
+    dest: /usr/local/bin/sssd-clean-cache
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Execute SSSD clean cache script
+  ansible.builtin.command: /usr/local/bin/sssd-clean-cache
+  become: true
+  register: sssd_clean_result
+  changed_when: true
+

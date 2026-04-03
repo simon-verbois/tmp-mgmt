@@ -1,0 +1,15 @@
+---
+- name: Automation - Update client inventory in git project
+  hosts: localhost
+  gather_facts: no
+
+# Usage
+# ansible-playbook playbooks/_automation/update_client_hosts_on_git.yaml
+
+  vars:
+    UPDATE_HOSTS_ON_GIT_REPOS: true
+
+  roles:
+    - common
+    - automation
+    

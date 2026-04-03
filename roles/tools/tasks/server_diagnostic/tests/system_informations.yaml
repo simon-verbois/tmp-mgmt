@@ -1,0 +1,104 @@
+# roles/tools/tasks/server_diagnostic/tests/system_informations.yaml
+
+---
+- name: "Add system informations header"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.3em;">System Informations</b>
+      </div>
+
+- block:
+    - name: Check if reboot is required (RedHat)
+      ansible.builtin.shell: needs-restarting -r
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: reboot_check
+      failed_when: false
+      changed_when: false
+
+    - name: Set system flags and thresholds
+      ansible.builtin.set_fact:
+        # 9 months = 23328000s | 12 months = 31536000s
+        is_uptime_critical: "{{ ansible_uptime_seconds | int > 31536000 }}"
+        is_uptime_warning: "{{ ansible_uptime_seconds | int > 23328000 and ansible_uptime_seconds | int <= 31536000 }}"
+        needs_reboot: "{{ reboot_check.rc == 1 }}"
+        utils_missing: "{{ reboot_check.rc == 127 or reboot_check.rc == 2 }}"
+        selinux_disabled: "{{ ansible_selinux.status | default('disabled') == 'disabled' }}"
+
+    - name: Define status properties
+      ansible.builtin.set_fact:
+        status_color: "{{ '#d9534f' if (needs_reboot or is_uptime_critical) else ('#f0ad4e' if (is_uptime_warning or selinux_disabled) else '#5cb85c') }}"
+        status_label: "{{ 'CRITICAL' if (needs_reboot or is_uptime_critical) else ('WARNING' if (is_uptime_warning or selinux_disabled) else 'HEALTHY') }}"
+        status_message: >-
+          {{ 'Critical system issues require immediate intervention.' if (needs_reboot or is_uptime_critical)
+             else ('System is operational but requires maintenance or security adjustments.' if (is_uptime_warning or selinux_disabled)
+             else 'All core system parameters are nominal.') }}
+
+    - name: Add System Status Summary Box
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid {{ status_color }}; padding: 10px; border-radius: 5px; background-color: {{ status_color }}05; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em;">
+            <div style="text-align: center; margin-bottom: 8px;">
+              <b style="font-size: 1.1em; color: {{ status_color }}; text-transform: uppercase;">Status: {{ status_label }}</b><br>
+              <span style="color: #555;">{{ status_message }}</span>
+            </div>
+            
+            <div style="margin-bottom: 8px; padding: 5px 10px; border-radius: 3px;">
+              <b style="font-size: 0.85em; color: #333;">Support Checklist:</b><br>
+              <span style="font-size: 0.85em;">
+                {{ '❌' if needs_reboot else '✅' }} Reboot check (Kernel/Libs updates)<br>
+                {% if utils_missing %}
+                <span style="color: #d9534f; margin-left: 20px;">⚠️ yum-utils / dnf-utils is missing on this server, can't confirm if reboot is pending</span><br>
+                {% endif %}
+                {{ '❌ Uptime is higher than 1 year' if is_uptime_critical else ('⚠️ Uptime is higher than 9 month' if is_uptime_warning else '✅ Uptime check') }}<br>
+                {{ '⚠️' if selinux_disabled else '✅' }} SELinux policy ({{ ansible_selinux.status | default('disabled') }})<br>
+              </span>
+            </div>
+          </div>
+
+    - name: Add System Details Table
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <table>
+            <tr style="background-color: #e0e0e0;">
+              <th colspan="2" style="padding: 10px; text-align: center; font-size: 1.1em;">Technical Specifications</th>
+            </tr>
+            <tr>
+              <td style="width: 30%; font-weight: bold; background-color: #f9f9f9;">FQDN</td>
+              <td>{{ ansible_fqdn }}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; background-color: #f9f9f9;">OS Distribution</td>
+              <td>{{ ansible_distribution }} {{ ansible_distribution_version }}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; background-color: #f9f9f9;">Uptime</td>
+              <td style="{{ 'color: #d9534f; font-weight: bold;' if (is_uptime_critical or is_uptime_warning) else '' }}">
+                {{ (ansible_uptime_seconds | int / 86400) | int }} days, 
+                {{ ((ansible_uptime_seconds | int % 86400) / 3600) | int }} hours
+              </td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; background-color: #f9f9f9;">IPv4 Addresses</td>
+              <td>{{ found_ips }}</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; background-color: #f9f9f9;">System Time</td>
+              <td>{{ ansible_date_time.date }} - {{ ansible_date_time.time }} ({{ ansible_date_time.tz }})</td>
+            </tr>
+          </table>
+
+  rescue:
+    - name: Add system fallback informations
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid #d9534f; padding: 10px; text-align: center; width: 95%; margin: 0 auto;">
+            <b style="color: #d9534f;">⚠️ ERROR: Could not collect complete system metrics.</b>
+          </div>

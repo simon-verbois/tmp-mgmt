@@ -1,0 +1,15 @@
+---
+- name: Playbook to install elastic agent
+  hosts: all
+  gather_facts: true
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/elastic_agent/installation.yaml -i clients/XXXX/elastic-agent.ini -l elastic_agent_dynamic
+
+  vars:
+    INSTALL_ELASTIC_AGENT: true
+
+  roles:
+    - common
+    - elastic_agent

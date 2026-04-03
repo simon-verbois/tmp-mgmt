@@ -1,0 +1,11 @@
+# roles/redhat_tomcat/tasks/remove/main.yaml
+
+---
+- name: Uninstall {{ __squid_package }}
+  become: true
+  ansible.builtin.dnf:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - "java"
+    - "tomcat"

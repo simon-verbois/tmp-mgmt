@@ -1,0 +1,119 @@
+# roles/redhat_idm/tasks/manage/main.yaml
+
+---
+- name: Global execution
+  block:
+  - name: Define default vars for this sub-role
+    ansible.builtin.set_fact:
+      mail_subject: "[LAF] Manage IPA - No Job Selected" 
+      mail_content: |-
+        {{ __mail_header }}
+        <br>
+        <br>
+        <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+          <b style="font-size: 1.5em;">Execution informations</b>
+        </div>
+
+  - name: Include create working_dir tasks
+    ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/create_working_dir.yaml" 
+
+  - name: Include set of tasks to create selected IPA dict
+    ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/define_select_ipa_dict.yaml"
+    
+  ############################################
+  #  Start here, depending on enabled tasks  #
+  ############################################
+
+  - name: Include user creation tasks
+    ansible.builtin.include_tasks: users/creation/main.yaml
+    when: enable_user_creation | default(false) | bool
+
+  - name: Include user deletion tasks
+    ansible.builtin.include_tasks: users/deletion/main.yaml
+    when: enable_user_deletion | default(false) | bool
+
+  - name: Include user password reset tasks
+    ansible.builtin.include_tasks: users/password_reset/main.yaml
+    when: enable_password_reset | default(false) | bool
+
+  - name: Include user enabling tasks
+    ansible.builtin.include_tasks: users/enabling/main.yaml
+    when: enable_user_enabling | default(false) | bool
+
+  - name: Include user disabling tasks
+    ansible.builtin.include_tasks: users/disabling/main.yaml
+    when: enable_user_disabling | default(false) | bool
+
+  - name: Include user remove group tasks
+    ansible.builtin.include_tasks: users/remove_group/main.yaml
+    when: enable_user_remove_group | default(false) | bool
+
+  - name: Include user add group tasks
+    ansible.builtin.include_tasks: users/add_group/main.yaml
+    when: enable_user_add_group | default(false) | bool
+
+  - name: Include add pubkey tasks
+    ansible.builtin.include_tasks: users/add_pubkey/main.yaml
+    when: enable_add_pubkey | default(false) | bool
+
+
+  rescue:
+  - name: Fill mail_content with error message
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        An error occur during execution, please forward this mail to cso-linux@deep.eu
+
+
+  always:
+  - block:
+    - name: Find all CSV files to attach
+      ansible.builtin.find:
+        paths: "{{ working_dir }}"
+        patterns: "*.csv"
+      register: found_csv_files
+
+    - block:
+      - name: Encrypt result depending on enabled tasks
+        ansible.builtin.include_tasks: utils/encrypt_files.yaml
+
+      - name: Find all ZIP files to attach
+        ansible.builtin.find:
+          paths: "{{ working_dir }}"
+          patterns: "*.zip"
+        register: found_zip_files
+      when:
+        - found_csv_files.matched > 0
+        - >
+          (enable_user_creation | default(false) | bool) or
+          (enable_password_reset | default(false) | bool) or
+          (enable_user_enabling | default(false) | bool)
+
+    - name: Set attachments list from CSV
+      ansible.builtin.set_fact:
+        mail_attachments: "{{ found_csv_files.files | map(attribute='path') | list }}"
+
+    - name: Set attachments list from ZIP if encryption occurred
+      ansible.builtin.set_fact:
+        mail_attachments: "{{ found_zip_files.files | map(attribute='path') | list }}"
+      when:
+        - found_zip_files is not skipped
+        - found_zip_files.matched > 0
+
+    - name: Send execution result by mail
+      community.general.mail:
+        host: "localhost"
+        port: "25"
+        sender: "{{ __mail_from }}"
+        to: "{{ mail_recipient }}"
+        subject: "{{ mail_subject }}"
+        body: "{{ mail_content }}"
+        attach: "{{ mail_attachments }}"
+        charset: utf8
+        subtype: html
+      loop: "{{ __mail_to }}"
+      loop_control:
+        loop_var: mail_recipient
+
+    always:
+    - ansible.builtin.include_tasks: utils/clean_working_dir.yaml

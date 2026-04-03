@@ -1,0 +1,38 @@
+[defaults]
+stdout_callback = yaml
+bin_ansible_callbacks = True
+remote_user = foreman-proxy
+host_key_checking = False
+deprecation_warnings = False
+action_warnings = False
+localhost_warning = False
+collections_path = ./collections
+#vault_identity_list = 
+roles_path = ./roles
+forks = 100
+
+[ssh_connection]
+ssh_args = -o ForwardAgent=yes -o ControlMaster=auto -o ControlPersist=60s
+
+[inventory]
+inventory_unparsed_warning = False
+
+[galaxy]
+ignore_certs = True
+server_list = rh-certified, validated, community, published
+
+[galaxy_server.rh-certified]
+token = <AAP-TOKEN>
+url=https://aaphub-mp-shared.csv.local/api/galaxy/content/rh-certified/
+ 
+[galaxy_server.validated]
+token = <AAP-TOKEN>
+url=https://aaphub-mp-shared.csv.local/api/galaxy/content/validated/
+ 
+[galaxy_server.community]
+token = <AAP-TOKEN>
+url=https://aaphub-mp-shared.csv.local/api/galaxy/content/community/
+
+[galaxy_server.published]
+token = <AAP-TOKEN>
+url = https://aaphub-mp-shared.csv.local/api/galaxy/content/published/

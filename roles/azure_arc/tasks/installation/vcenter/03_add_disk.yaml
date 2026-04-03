@@ -1,0 +1,89 @@
+# roles/azure_arc/tasks/installation/vcenter/03_add_disk.yaml
+
+---
+- name: "VCENTER | Add new disk on {{ current_vcenter.value.url }}"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search for VM {{ inventory_hostname_short | lower }}"
+      community.vmware.vmware_vm_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        vm_name: "{{ inventory_hostname_short | lower }}"
+      register: __azurearc_vm_search
+
+    - name: "VCENTER | Fail if VM not found (triggers rescue)"
+      ansible.builtin.fail:
+        msg: "VM_NOT_FOUND"
+      when: __azurearc_vm_search.virtual_machines | length == 0
+
+    - name: "VCENTER | Set VM details"
+      ansible.builtin.set_fact:
+        __azurearc_vm_details: "{{ __azurearc_vm_search.virtual_machines[0] }}"
+
+    - name: "VCENTER | Identify first disk (lowest unit number) as reference"
+      ansible.builtin.set_fact:
+        __azurearc_ref_disk: "{{ vm_disks_dict | dict2items | sort(attribute='value.unit_number') | first }}"
+
+    - name: "VCENTER | Determine provisioning type from reference disk"
+      ansible.builtin.set_fact:
+        __azurearc_disk_type: >-
+          {%- if __azurearc_ref_disk.value.backing_eagerlyscrub | default(false) -%}
+            eagerzeroedthick
+          {%- elif __azurearc_ref_disk.value.backing_thinprovisioned | default(false) -%}
+            thin
+          {%- else -%}
+            thick
+          {%- endif -%}
+
+    - name: "VCENTER | Find next available unit number (skip unit 7)"
+      ansible.builtin.set_fact:
+        __azurearc_new_unit_number: >-
+          {%- set used = vm_disks_dict | dict2items | map(attribute='value.unit_number') | list | sort -%}
+          {%- set ns = namespace(candidate=0) -%}
+          {%- for _ in range(16) -%}
+            {%- if ns.candidate in used or ns.candidate == 7 -%}
+              {%- set ns.candidate = ns.candidate + 1 -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ ns.candidate }}
+
+    - name: "VCENTER | Debug new disk plan"
+      ansible.builtin.debug:
+        msg:
+          - "Reference disk: {{ __azurearc_ref_disk.value.label }}"
+          - "Datastore: {{ __azurearc_ref_disk.value.backing_datastore }}"
+          - "Provisioning: {{ __azurearc_disk_type }}"
+          - "Disk mode: {{ __azurearc_ref_disk.value.backing_diskmode }}"
+          - "SCSI controller: {{ __azurearc_ref_disk.value.controller_bus_number }}"
+          - "New unit number: {{ __azurearc_new_unit_number }}"
+          - "Size: {{ __azurearc_disk_size_gb }} GB"
+
+    - name: "VCENTER | Add new {{ __azurearc_disk_size_gb }} GB disk"
+      community.vmware.vmware_guest_disk:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ __azurearc_vm_details.datacenter }}"
+        uuid: "{{ __azurearc_vm_details.uuid }}"
+        disk:
+          - scsi_controller: "{{ __azurearc_ref_disk.value.controller_bus_number }}"
+            unit_number: "{{ __azurearc_new_unit_number }}"
+            size_gb: "{{ __azurearc_disk_size_gb }}"
+            type: "{{ __azurearc_disk_type }}"
+            datastore: "{{ __azurearc_ref_disk.value.backing_datastore }}"
+            disk_mode: "{{ __azurearc_ref_disk.value.backing_diskmode }}"
+            state: present
+
+    - name: "VCENTER | Mark action done"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | Add disk failed or VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "Failed on {{ current_vcenter.value.url }}, trying next..."

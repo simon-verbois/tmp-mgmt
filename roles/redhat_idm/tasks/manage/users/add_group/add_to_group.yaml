@@ -1,0 +1,35 @@
+# roles/redhat_idm/tasks/manage/users/add_group/04_add_to_group.yaml
+
+---
+- block:
+    - name: Add {{ username }} to {{ groupname }} group
+      delegate_to: "{{ ipa_server }}"
+      redhat.rhel_idm.ipagroup:
+        ipaadmin_principal: "{{ ipa_user }}"
+        ipaadmin_password: "{{ ipa_pass }}"
+        name: "{{ groupname }}"
+        user:
+          - "{{ username }}"
+        action: member
+        state: present
+      register: add_to_group_result
+
+    - name: Update mail_content based on group adding status
+      ansible.builtin.set_fact:
+        mail_content: |
+          {{ mail_content }}
+          {% if add_to_group_result.changed %}
+          {{ username }} have correctly been added to {{ groupname }} group.<br>
+          {% else %}
+          <b>{{ ipa_domain }} - {{ username }} was already in {{ groupname }} group.</b><br>
+          {% endif %}
+
+  rescue:
+    - name: Fill mail_content with error message
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <b>{{ ipa_domain }} - ⚠️ Failed to add {{ username | default('username-var') }} to {{ groupname }} group.</b><br>
+          <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
+          {{ add_to_group_result.msg | default(ansible_failed_result.msg | default('Unknown error')) }}
+          </pre>

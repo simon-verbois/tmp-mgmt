@@ -1,0 +1,56 @@
+# roles/tools/tasks/server_add_cpu/host/online_cpus.yaml
+
+---
+- name: "HOST | Bring all offline CPUs online"
+  ansible.builtin.shell: |
+    set -e
+    BROUGHT_ONLINE=0
+    for cpu_dir in /sys/devices/system/cpu/cpu[0-9]*; do
+      ONLINE_FILE="$cpu_dir/online"
+      if [ -f "$ONLINE_FILE" ] && [ "$(cat "$ONLINE_FILE")" = "0" ]; then
+        echo 1 > "$ONLINE_FILE"
+        BROUGHT_ONLINE=$((BROUGHT_ONLINE + 1))
+      fi
+    done
+    echo "$BROUGHT_ONLINE"
+  become: true
+  register: cpus_brought_online
+  changed_when: cpus_brought_online.stdout | int > 0
+
+- name: "HOST | Record AFTER CPU count"
+  ansible.builtin.shell: grep -c ^processor /proc/cpuinfo
+  become: true
+  register: cpu_after
+  changed_when: false
+
+- name: "HOST | Verify expected CPU count"
+  ansible.builtin.assert:
+    that:
+      - cpu_after.stdout | int == requested_cpu_count | int
+    fail_msg: >-
+      Expected {{ requested_cpu_count }} CPUs but OS reports {{ cpu_after.stdout }}.
+      Manual investigation required.
+  ignore_errors: true
+
+- name: "HOST | Extension summary"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _status: "{{ 'OK' if (cpu_after.stdout | int == requested_cpu_count | int) else 'WARNING - count mismatch' }}"
+    _report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║              CPU EXTENSION - EXECUTION REPORT                ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {{ "║  %-60s║" | format("Requested:        " ~ requested_cpu_count ~ " vCPUs") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("BEFORE") }}
+      {{ "║  %-60s║" | format("CPUs Online:      " ~ cpu_before.stdout | trim) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("AFTER") }}
+      {{ "║  %-60s║" | format("CPUs Online:      " ~ cpu_after.stdout | trim) }}
+      {{ "║  %-60s║" | format("Brought Online:   " ~ cpus_brought_online.stdout | trim) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("STATUS:           " ~ _status) }}
+      ╚══════════════════════════════════════════════════════════════╝
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ _report }}"

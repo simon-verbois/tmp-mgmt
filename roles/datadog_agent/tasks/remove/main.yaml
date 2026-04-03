@@ -1,0 +1,17 @@
+# roles/datadog_agent/tasks/remove/main.yaml
+
+---
+- name: "Remove {{ __datadog_package }}"
+  become: yes
+  ansible.builtin.dnf:
+    name: "{{ __datadog_package }}"
+    state: absent
+
+- name: "Remove datadog repository"
+  become: yes
+  ansible.builtin.file:
+    path: "/etc/yum.repos.d/{{ __datadog_repo_name }}.repo"
+    state: absent
+  notify:
+    - reload_systemd_daemon
+    - yum_clean_all

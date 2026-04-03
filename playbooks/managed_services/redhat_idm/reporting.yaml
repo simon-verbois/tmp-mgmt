@@ -1,0 +1,23 @@
+---
+- name: Playbook for IPA reporting
+  hosts: localhost
+
+# Usage
+# Users
+# ansible-playbook playbooks/managed_services/redhat_idm/reporting.yaml -e "enable_users_reporting=true __users=jdoe __clients_id_prompted='XXXX;YYYY'"
+
+# User groups
+# ansible-playbook playbooks/managed_services/redhat_idm/reporting.yaml -e "enable_user_groups_reporting=true __user_groups='ict-linux' __clients_id_prompted='XXXX'"
+
+# Hosts
+# ansible-playbook playbooks/managed_services/redhat_idm/reporting.yaml -e "enable_hosts_reporting=true __hosts='' __clients_id_prompted='XXXX' __target_environment=managed"
+
+# Full report
+# ansible-playbook playbooks/managed_services/redhat_idm/reporting.yaml -e "enable_all_reporting=true __clients_id_prompted='XXXX' __target_environment=managed"
+
+  vars:
+    REDHAT_IDM_REPORTING: true
+
+  roles:
+    - common
+    - redhat_idm

@@ -1,0 +1,46 @@
+# roles/azure_arc/tasks/installation/host/create_vg.yaml
+
+---
+- name: "HOST | Rescan SCSI and detect new disk (only if vCenter just added one)"
+  when: __azurearc_empty_disk is not defined
+  block:
+    - name: "HOST | List block devices before SCSI rescan"
+      ansible.builtin.shell: "lsblk -ndo NAME,TYPE | awk '$2==\"disk\" {print $1}' | sort"
+  
+      register: __azurearc_disks_before
+      changed_when: false
+
+    - name: "HOST | Rescan SCSI and wait for new disk"
+  
+      ansible.builtin.shell: |
+        for host in /sys/class/scsi_host/host*; do
+          echo "- - -" > "$host/scan"
+        done
+        sleep 3
+        lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | sort
+      register: __azurearc_disks_after
+      changed_when: false
+      until: (__azurearc_disks_after.stdout_lines | difference(__azurearc_disks_before.stdout_lines)) | length > 0
+      retries: 6
+      delay: 5
+
+    - name: "HOST | Fail if no new disk detected"
+      ansible.builtin.fail:
+        msg: "No new disk detected after SCSI rescan. vCenter disk addition may have failed."
+      when: (__azurearc_disks_after.stdout_lines | difference(__azurearc_disks_before.stdout_lines)) | length == 0
+
+    - name: "HOST | Set newly detected disk"
+      ansible.builtin.set_fact:
+        __azurearc_empty_disk: "/dev/{{ (__azurearc_disks_after.stdout_lines | difference(__azurearc_disks_before.stdout_lines)) | first }}"
+
+- name: "HOST | Debug target disk for VG creation"
+  ansible.builtin.debug:
+    msg: "Using disk {{ __azurearc_empty_disk }} for VG {{ __azurearc_vg_name }}"
+
+- name: "HOST | Create PV directly on {{ __azurearc_empty_disk }}"
+  ansible.builtin.command: "pvcreate {{ __azurearc_empty_disk }}"
+
+- name: "HOST | Create VG {{ __azurearc_vg_name }} on {{ __azurearc_empty_disk }}"
+  community.general.lvg:
+    vg: "{{ __azurearc_vg_name }}"
+    pvs: "{{ __azurearc_empty_disk }}"

@@ -1,0 +1,57 @@
+# roles/tools/tasks/server_extend_swap/main.yaml
+
+---
+- name: "Determine run mode"
+  ansible.builtin.set_fact:
+    dry_run: "{{ auth_token is not defined or auth_token | length == 0 }}"
+
+- name: "Assert required variables"
+  ansible.builtin.assert:
+    that:
+      - requested_add_size_gb is defined
+    fail_msg: "Variable 'requested_add_size_gb' must be defined."
+
+- name: "Gather swap and LVM topology"
+  ansible.builtin.include_tasks: checks/gather_swap_info.yaml
+
+- name: "Calculate vCenter disk extension need"
+  ansible.builtin.include_tasks: checks/calculate_vcenter_need.yaml
+
+- name: "Gather vCenter disk information"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "get_disk_info"
+  when: vcenter_disk_add_gb | int > 0
+
+- name: "Match OS disk to vCenter disk"
+  ansible.builtin.include_tasks: checks/match_vcenter_disk.yaml
+  when: vcenter_disk_add_gb | int > 0
+
+- name: "Check datastore available space"
+  ansible.builtin.include_tasks: checks/check_datastore_space.yaml
+  when:
+    - vcenter_disk_add_gb | int > 0
+    - vcenter_match_error is not defined
+
+- name: "Abort execution if checks failed"
+  ansible.builtin.fail:
+    msg: "{{ vcenter_match_error | default(datastore_error | default(swapoff_error)) }}"
+  when:
+    - not dry_run | bool
+    - vcenter_match_error is defined or datastore_error is defined or swapoff_error is defined
+
+- name: "Include dry-run report and stop"
+  ansible.builtin.include_tasks: dry_run.yaml
+  when: dry_run | bool
+
+- name: "Verify authorization token"
+  ansible.builtin.include_tasks: checks/verify_token.yaml
+
+- name: "Extend vCenter disk"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "extend_disk"
+  when: vcenter_disk_add_gb | int > 0
+
+- name: "Extend swap space"
+  ansible.builtin.include_tasks: host/extend_swap.yaml

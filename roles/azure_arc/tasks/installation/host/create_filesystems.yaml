@@ -1,0 +1,78 @@
+# roles/azure_arc/tasks/installation/host/create_filesystems.yaml
+
+---
+- name: "HOST | Check if LVs already exist"
+  ansible.builtin.shell: "lvs {{ __azurearc_vg_name }}/{{ item }} 2>/dev/null && echo 'true' || echo 'false'"
+  register: __azurearc_lv_exists_raw
+  changed_when: false
+  loop:
+    - lv_azcmagent
+    - lv_guestconfig
+
+- name: "HOST | Set LV existence facts"
+  ansible.builtin.set_fact:
+    __azurearc_lv_azcmagent_exists: "{{ __azurearc_lv_exists_raw.results[0].stdout | trim | bool }}"
+    __azurearc_lv_guestconfig_exists: "{{ __azurearc_lv_exists_raw.results[1].stdout | trim | bool }}"
+
+- name: "HOST | Determine LV sizing strategy for lv_guestconfig"
+  when: not __azurearc_lv_guestconfig_exists
+  block:
+    - name: "HOST | Get VG total size"
+      ansible.builtin.shell: "vgs --noheadings -o vg_size --units g --nosuffix {{ __azurearc_vg_name }} | tr -d ' '"
+      register: __azurearc_vg_total_raw
+      changed_when: false
+
+    - name: "HOST | Set lv_guestconfig size"
+      ansible.builtin.set_fact:
+        __azurearc_guestconfig_size: >-
+          {%- set vg_total = __azurearc_vg_total_raw.stdout | float -%}
+          {%- set threshold = (__azurearc_disk_size_gb | float) + 2 -%}
+          {%- if vg_total <= threshold -%}
+            100%FREE
+          {%- else -%}
+            {{ __azurearc_lv_guestconfig_size_gb }}G
+          {%- endif -%}
+
+- name: "HOST | Create LV lv_azcmagent ({{ __azurearc_lv_azcmagent_size_gb }}G)"
+  community.general.lvol:
+    vg: "{{ __azurearc_vg_name }}"
+    lv: lv_azcmagent
+    size: "{{ __azurearc_lv_azcmagent_size_gb }}G"
+  when: not __azurearc_lv_azcmagent_exists
+
+- name: "HOST | Create LV lv_guestconfig ({{ __azurearc_guestconfig_size | default('skipped') }})"
+  community.general.lvol:
+    vg: "{{ __azurearc_vg_name }}"
+    lv: lv_guestconfig
+    size: "{{ __azurearc_guestconfig_size }}"
+  when: not __azurearc_lv_guestconfig_exists
+
+- name: "HOST | Create XFS filesystems"
+  community.general.filesystem:
+    fstype: xfs
+    dev: "/dev/{{ __azurearc_vg_name }}/{{ item }}"
+  loop:
+    - lv_azcmagent
+    - lv_guestconfig
+
+- name: "HOST | Create mount point directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ __azurearc_mount_azcmagent }}"
+    - "{{ __azurearc_mount_guestconfig }}"
+
+- name: "HOST | Mount filesystems and persist in fstab"
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "/dev/{{ __azurearc_vg_name }}/{{ item.lv }}"
+    fstype: xfs
+    opts: defaults
+    state: mounted
+  loop:
+    - { path: "{{ __azurearc_mount_azcmagent }}", lv: "lv_azcmagent" }
+    - { path: "{{ __azurearc_mount_guestconfig }}", lv: "lv_guestconfig" }

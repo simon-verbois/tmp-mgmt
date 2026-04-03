@@ -1,0 +1,7 @@
+# Add the ID of the client you are decommissioning
+[all:vars]
+client_id="0000"
+
+# List all servers FQDN
+[all]
+sv-0000lvp00.rh.ebrc.local

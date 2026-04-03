@@ -1,0 +1,58 @@
+# roles/redhat_podman/tasks/validate_quadlets.yml
+
+---
+- name: List all user services
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    systemctl --user list-units --type=service --no-pager --no-legend | \
+    grep -E '(container-|quadlet-)' || echo "No Quadlet services found"
+  args:
+    executable: /bin/bash
+  register: quadlet_units
+  changed_when: false
+
+- name: Get detailed status of Quadlet services
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    systemctl --user status {{ item }} --no-pager --lines=10
+  args:
+    executable: /bin/bash
+  loop: "{{ quadlet_services | default([]) }}"
+  register: detailed_status
+  changed_when: false
+  failed_when: false
+
+- name: Check for failed Quadlet services
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    systemctl --user list-units --failed --no-pager --no-legend | \
+    grep -E '(container-|quadlet-)' || echo "none"
+  args:
+    executable: /bin/bash
+  register: failed_services
+  changed_when: false
+
+- name: Report Quadlet validation results
+  ansible.builtin.debug:
+    msg:
+      - "Active Quadlet Services: {{ quadlet_units.stdout_lines | select('match', '.*active.*') | list | length }}"
+      - "Failed Services: {{ 'None' if failed_services.stdout == 'none' else failed_services.stdout }}"
+
+- name: Display logs for failed services
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i \
+    journalctl --user -u {{ item }} --no-pager --lines=20
+  args:
+    executable: /bin/bash
+  loop: "{{ failed_services.stdout_lines }}"
+  when:
+    - failed_services.stdout != 'none'
+    - item != 'none'
+  register: failed_logs
+  changed_when: false
+
+- name: Show failed service logs
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ failed_logs.results | default([]) }}"
+  when: item.stdout_lines is defined

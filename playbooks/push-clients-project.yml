@@ -1,0 +1,94 @@
+---
+- hosts: localhost
+  name: Push Client Projects (SSH / Local Config)
+  connection: local
+  gather_facts: no
+
+  # To Run:
+  # ansible-playbook playbooks/push-clients-project.yml
+
+  vars_prompt:
+    - name: clients_id_prompted
+      prompt: |-
+        (Separate them with a space OR leave empty for all local clients)
+        Clients ID
+      private: no
+
+    - name: commit_msg_prompted
+      prompt: |-
+        (Leave empty to use an automated message)
+        Commit message
+      private: no
+
+  vars:
+    # --- Paths ---
+    root_dir: "{{ playbook_dir | dirname }}"
+    working_dir: "{{ root_dir }}/clients"
+
+  pre_tasks:
+    - name: "Check if clients directory exists"
+      ansible.builtin.stat:
+        path: "{{ working_dir }}"
+      register: dir_check
+
+    - name: "Fail if clients directory is missing"
+      ansible.builtin.fail:
+        msg: "The directory {{ working_dir }} does not exist. Please pull projects first."
+      when: not dir_check.stat.exists
+
+    # --- Message Generation ---
+    - name: "Define Commit Message"
+      ansible.builtin.set_fact:
+        commit_msg: >-
+          {% if commit_msg_prompted | length > 0 %}
+          Custom-commit: {{ commit_msg_prompted }}
+          {% else %}
+          Automated-commit: {{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}
+          {% endif %}
+
+    # --- Logic to determine targets ---
+    - name: "Option 1: Use provided Client IDs"
+      ansible.builtin.set_fact:
+        clients_id: "{{ clients_id_prompted.split(' ') | reject('equalto', '') | list }}"
+      when: clients_id_prompted | length > 0
+
+    - name: "Option 2: Find all local client directories"
+      block:
+        - name: "Scan clients directory"
+          ansible.builtin.find:
+            paths: "{{ working_dir }}"
+            file_type: directory
+            recurse: no
+          register: found_directories
+
+        - name: "Extract directory names as Client IDs"
+          ansible.builtin.set_fact:
+            clients_id: "{{ found_directories.files | map(attribute='path') | map('basename') | list }}"
+      when: clients_id_prompted | length == 0
+
+    - name: "Debug targets"
+      ansible.builtin.debug:
+        msg: "Targeting {{ clients_id | length }} repositories: {{ clients_id }}"
+        verbosity: 1
+
+  tasks:
+    - name: "Git Workflow: Add, Commit, Push"
+      # Using shell allows chaining commands with proper exit code handling.
+      # 1. Add everything
+      # 2. Commit (allow empty/no changes without failing script, but capture output)
+      # 3. Push only if commit succeeded or if remote needs update
+      ansible.builtin.shell: |
+        git add -A
+        git commit -m "{{ commit_msg }}" || echo "Nothing to commit"
+        git push
+      args:
+        chdir: "{{ working_dir }}/{{ item }}"
+      loop: "{{ clients_id }}"
+      loop_control:
+        label: "{{ item }}"
+      register: git_result
+      changed_when: "'Nothing to commit' not in git_result.stdout and 'Everything up-to-date' not in git_result.stderr"
+      # Fail only if push fails (commit failure is handled by || echo)
+      failed_when: 
+        - git_result.rc != 0
+        - "'nothing to commit' not in git_result.stdout"

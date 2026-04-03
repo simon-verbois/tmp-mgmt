@@ -1,0 +1,18 @@
+# roles/azure_arc/tasks/installation/vcenter/00_main.yaml
+
+---
+- name: "VCENTER | Reset loop breaker"
+  ansible.builtin.set_fact:
+    vcenter_action_done: false
+
+- name: "VCENTER | Loop on each vCenter to execute {{ vcenter_action | upper }}"
+  ansible.builtin.include_tasks:
+    file: >-
+      {%- if vcenter_action == 'get_disk_info' -%}01_get_disk_info.yaml
+      {%- elif vcenter_action == 'extend_disk' -%}02_extend_disk.yaml
+      {%- elif vcenter_action == 'add_disk' -%}03_add_disk.yaml
+      {%- endif -%}
+  loop: "{{ __vcenter_infos | dict2items }}"
+  loop_control:
+    loop_var: current_vcenter
+    label: "{{ current_vcenter.key }}"

@@ -1,0 +1,38 @@
+# roles/redhat_idm/tasks/manage/users/add_pubkey/02_loop_on_users.yaml
+
+---
+- name: Determine target username (user or altusername)
+  ansible.builtin.set_fact:
+    target_username: >-
+      {{
+        item.altusername
+        if (client_id | default('') | string in use_altusername | map('string') | list and item.altusername | default('') != '')
+        else item.user
+      }}
+
+- name: "Inject SSH key for {{ target_username }}"
+  delegate_to: "{{ ipa_server }}"
+  redhat.rhel_idm.ipauser:
+    ipaadmin_principal: "{{ ipa_user }}"
+    ipaadmin_password: "{{ ipa_pass }}"
+    name: "{{ target_username }}"
+    sshpubkey:
+      - "{{ item.pubkey }}"
+    state: present
+  when: item.pubkey is defined
+  register: ipa_result
+  ignore_errors: true
+
+- name: Define status for {{ target_username }}
+  ansible.builtin.set_fact:
+    current_status: >-
+      {% if item.pubkey is not defined %}SKIPPED_NO_KEY
+      {% elif ipa_result.failed | default(false) %}FAILED
+      {% elif ipa_result.changed %}CHANGED
+      {% else %}OK{% endif %}
+
+- name: Append result to global report list
+  ansible.builtin.set_fact:
+    add_pubkey_report: "{{ add_pubkey_report | default([]) + [csv_line] }}"
+  vars:
+    csv_line: "{{ target_username }},{{ current_status | trim }},{{ ipa_server }}"

@@ -1,0 +1,52 @@
+# roles/tools/tasks/server_add_cpu/main.yaml
+
+---
+- name: "Determine run mode"
+  ansible.builtin.set_fact:
+    dry_run: "{{ auth_token is not defined or auth_token | length == 0 }}"
+
+- name: "Assert required variables"
+  ansible.builtin.assert:
+    that:
+      - requested_cpu_count is defined
+      - requested_cpu_count | int > 0
+    fail_msg: "Variable 'requested_cpu_count' must be defined and greater than 0."
+
+- name: "Gather OS CPU info"
+  ansible.builtin.include_tasks: checks/gather_cpu_info.yaml
+
+- name: "Gather vCenter CPU configuration"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "get_cpu_info"
+
+- name: "Validate CPU extension request"
+  ansible.builtin.include_tasks: checks/validate_cpu_request.yaml
+
+- name: "Abort execution if validation failed"
+  ansible.builtin.fail:
+    msg: "{{ cpu_validation_error }}"
+  when:
+    - not dry_run | bool
+    - cpu_validation_error is defined
+
+- name: "Include dry-run report and stop"
+  ansible.builtin.include_tasks: dry_run.yaml
+  when: dry_run | bool
+
+- name: "Verify authorization token"
+  ansible.builtin.include_tasks: checks/verify_token.yaml
+
+- name: "Record CPU count before bringing cores online"
+  ansible.builtin.shell: grep -c ^processor /proc/cpuinfo
+  become: true
+  register: cpu_before
+  changed_when: false
+
+- name: "Extend CPU on vCenter"
+  ansible.builtin.include_tasks: vcenter/main.yaml
+  vars:
+    vcenter_action: "extend_cpu"
+
+- name: "Bring new CPUs online on the OS"
+  ansible.builtin.include_tasks: host/online_cpus.yaml

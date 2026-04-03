@@ -1,0 +1,85 @@
+# roles/automation/tasks/sync_git_client_repo_to_aap/main.yaml
+
+---
+- name: "SETUP | Define working_dir unique id"
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.set_fact:
+    working_dir: "/opt/ebrc/all/projects/linux-automation-framework/{{ 100000 | random }}_{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+- name: "SETUP | Create working directory"
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    mode: "0777"
+    state: "directory"
+
+# 2. INIT
+- name: "INIT | Initialize tracking lists"
+  ansible.builtin.set_fact:
+    valid_tower_inventories: []
+    problematic_repos: []
+    cacheable: yes
+
+# 3. COLLECT
+- name: "COLLECT | Import GitLab collection tasks"
+  ansible.builtin.include_tasks: collecting/gitlab_repositories.yaml
+
+# 4. PROCESS
+- block:
+    - name: "PROCESS | Handle each GitLab Repository"
+      ansible.builtin.include_tasks: processing/process_one_repo.yaml
+      loop: "{{ gitlab_repositories_list }}"
+      loop_control:
+        loop_var: gitlab_project
+        label: "{{ gitlab_project.name }}"
+
+    # 5. CLEANUP GHOSTS
+    - name: "CLEANUP | Remove obsolete inventories and projects from Tower"
+      ansible.builtin.include_tasks: processing/cleanup_ghosts.yaml
+
+  always:
+    # 6. REPORTING
+    - name: "REPORTING | Format email body"
+      ansible.builtin.set_fact:
+        mail_subject: "[LAF] Automatic inventory sync on tower"
+        mail_body_content: |
+          {{ __mail_header | default('<h1>Inventory Sync Report</h1>') }}
+          <br><br>
+          <b>Clients for whom the inventory update failed:</b>
+          <br>
+          <ul>
+          {% for repo_id in problematic_repos %}
+            <li>{{ repo_id }}</li>
+          {% endfor %}
+          </ul>
+      run_once: true
+      delegate_to: localhost
+      when: problematic_repos | default([]) | length > 0
+
+    - name: "REPORTING | Send playbook result via mail"
+      run_once: true
+      delegate_to: localhost
+      become: false
+      community.general.mail:
+        host: "localhost"
+        port: "25"
+        sender: "{{ __mail_from }}"
+        to: "{{ mail_recipient }}"
+        subject: "{{ mail_subject }}"
+        body: "{{ mail_body_content }}"
+        charset: utf8
+        subtype: html
+      loop: "{{ __mail_to }}"
+      loop_control:
+        loop_var: mail_recipient
+      when: problematic_repos | default([]) | length > 0
+      
+    # 7. CLEANUP WORKSPACE
+    - name: "CLEANUP | Remove working directory"
+      run_once: true
+      delegate_to: tower.csv.local
+      ansible.builtin.file:
+        path: "{{ working_dir }}"
+        state: absent

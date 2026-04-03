@@ -1,0 +1,62 @@
+# roles/azure_arc/tasks/installation/checks/current_vg_space.yaml
+
+---
+- name: "CHECKS | Gather VG free space and existing LVs for {{ __azurearc_vg_name }}"
+  ansible.builtin.shell: |
+    set -e
+    VG_NAME="{{ __azurearc_vg_name }}"
+    VG_FREE_BYTES=$(vgs --noheadings -o vg_free --units b --nosuffix "$VG_NAME" 2>/dev/null | tr -d ' ')
+
+    LV_AZCMAGENT_EXISTS="false"
+    LV_GUESTCONFIG_EXISTS="false"
+    if lvs "$VG_NAME/lv_azcmagent" &>/dev/null; then
+      LV_AZCMAGENT_EXISTS="true"
+    fi
+    if lvs "$VG_NAME/lv_guestconfig" &>/dev/null; then
+      LV_GUESTCONFIG_EXISTS="true"
+    fi
+
+    cat <<EOF
+    {
+      "vg_free_bytes": "$VG_FREE_BYTES",
+      "lv_azcmagent_exists": $LV_AZCMAGENT_EXISTS,
+      "lv_guestconfig_exists": $LV_GUESTCONFIG_EXISTS
+    }
+    EOF
+  register: __azurearc_vg_info_raw
+  changed_when: false
+
+- name: "CHECKS | Parse VG info"
+  ansible.builtin.set_fact:
+    __azurearc_vg_info: "{{ __azurearc_vg_info_raw.stdout | from_json }}"
+
+- name: "CHECKS | Calculate space still needed (only for missing LVs)"
+  ansible.builtin.set_fact:
+    __azurearc_vcenter_add_gb: >-
+      {%- set needed_gb = 0.0 -%}
+      {%- if not __azurearc_vg_info.lv_azcmagent_exists -%}
+        {%- set needed_gb = needed_gb + __azurearc_lv_azcmagent_size_gb | float -%}
+      {%- endif -%}
+      {%- if not __azurearc_vg_info.lv_guestconfig_exists -%}
+        {%- set needed_gb = needed_gb + __azurearc_lv_guestconfig_size_gb | float -%}
+      {%- endif -%}
+      {%- if needed_gb == 0.0 -%}
+        0
+      {%- else -%}
+        {%- set required_gb = needed_gb + 1.0 -%}
+        {%- set free_gb = (__azurearc_vg_info.vg_free_bytes | float / 1073741824) -%}
+        {%- if free_gb >= required_gb -%}
+          0
+        {%- else -%}
+          {{ (required_gb - free_gb) | round(0, 'ceil') | int }}
+        {%- endif -%}
+      {%- endif -%}
+
+- name: "CHECKS | Debug VG space calculation"
+  ansible.builtin.debug:
+    msg:
+      - "VG: {{ __azurearc_vg_name }}"
+      - "Current free: {{ (__azurearc_vg_info.vg_free_bytes | float / 1073741824) | round(2) }} GB"
+      - "LV lv_azcmagent: {{ 'exists' if __azurearc_vg_info.lv_azcmagent_exists else 'missing (' + __azurearc_lv_azcmagent_size_gb | string + 'G needed)' }}"
+      - "LV lv_guestconfig: {{ 'exists' if __azurearc_vg_info.lv_guestconfig_exists else 'missing (' + __azurearc_lv_guestconfig_size_gb | string + 'G needed)' }}"
+      - "Need to add from vCenter: {{ __azurearc_vcenter_add_gb }} GB"

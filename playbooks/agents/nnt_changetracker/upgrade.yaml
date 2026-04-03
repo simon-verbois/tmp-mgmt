@@ -1,0 +1,15 @@
+---
+- name: Playbook for NNT agent upgrade
+  hosts: all
+  become: true
+  gather_facts: true
+
+# Usage
+# ansible-playbook playbooks/agents/nnt_changetracker/upgrade.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    NNT_UPDATE_AGENT: true
+
+  roles:
+    - common
+    - nnt_changetracker

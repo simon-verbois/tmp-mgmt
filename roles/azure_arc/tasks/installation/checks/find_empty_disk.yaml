@@ -1,0 +1,26 @@
+# roles/azure_arc/tasks/installation/checks/find_empty_disk.yaml
+
+---
+- name: "CHECKS | Find disks with no partitions, no LVM and no filesystem"
+  ansible.builtin.shell: |
+    for disk in $(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}'); do
+      CHILDREN=$(lsblk -nro NAME "/dev/$disk" | wc -l)
+      if [ "$CHILDREN" -eq 1 ]; then
+        HAS_FS=$(blkid -o value -s TYPE "/dev/$disk" 2>/dev/null || true)
+        IS_PV=$(pvs --noheadings "/dev/$disk" 2>/dev/null | wc -l)
+        if [ -z "$HAS_FS" ] && [ "$IS_PV" -eq 0 ]; then
+          echo "$disk"
+        fi
+      fi
+    done
+  register: __azurearc_empty_disk_raw
+  changed_when: false
+
+- name: "CHECKS | Set empty disk fact if one was found"
+  ansible.builtin.set_fact:
+    __azurearc_empty_disk: "/dev/{{ __azurearc_empty_disk_raw.stdout_lines | first }}"
+  when: __azurearc_empty_disk_raw.stdout_lines | length > 0
+
+- name: "CHECKS | Debug empty disk detection"
+  ansible.builtin.debug:
+    msg: "{{ __azurearc_empty_disk | default('No empty disk found — will add one via vCenter') }}"

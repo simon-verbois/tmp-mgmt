@@ -1,0 +1,14 @@
+---
+- name: Playbook to remove Tomcat
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_tomcat/remove.yml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    REMOVE_TOMCAT: true
+
+  roles:
+    - common
+    - redhat_tomcat

@@ -1,0 +1,39 @@
+---
+- name: Audit - Check SELinux status and mode
+  hosts: all
+  gather_facts: false
+  serial: 20
+
+# Usage
+# ansible-playbook playbooks/tools/audits/selinux_status.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+# ansible-playbook playbooks/tools/audits/selinux_status.yaml -i clients/XXXX/hosts.ini
+
+  tasks:
+    - name: Remove existing report file
+      delegate_to: localhost
+      run_once: true
+      ansible.builtin.file:
+        path: "./selinux_audit_report.csv"
+        state: absent
+
+    - name: Create report file with CSV header
+      delegate_to: localhost
+      run_once: true
+      ansible.builtin.copy:
+        content: "Hostname,SELinux_Status\n"
+        dest: "./selinux_audit_report.csv"
+
+    - name: Check SELinux status  
+      command: getenforce
+      register: selinux_out
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Append result to local CSV
+      delegate_to: localhost
+      ansible.builtin.lineinfile:
+        path: "./selinux_audit_report.csv"
+        line: "{{ inventory_hostname }},{{ selinux_out.stdout | default('Unknown') }}"
+        insertafter: EOF
+

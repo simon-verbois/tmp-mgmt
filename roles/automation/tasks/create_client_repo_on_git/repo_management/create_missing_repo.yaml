@@ -1,0 +1,48 @@
+# roles/automation/tasks/create_client_repo_on_git/repo_management/create_missing_repo.yaml
+
+---
+- name: "REPO_MANAGEMENT | Create missing repositories on GitLab"
+  ansible.builtin.uri:
+    url: "https://{{ __gitlab_fqdn }}/api/v4/projects"
+    method: POST
+    validate_certs: no
+    headers:
+      PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "{{ item }}"
+      namespace_id: "750"
+    status_code: [201, 400]
+  loop: "{{ missing_repo_on_gitlab }}"
+  loop_control:
+    label: "{{ item }}"
+  register: create_repo_results
+  when: missing_repo_on_gitlab | length > 0
+
+- name: "REPO_MANAGEMENT | Add default _infos.yaml to new repositories"
+  ansible.builtin.uri:
+    url: "https://{{ __gitlab_fqdn }}/api/v4/projects/{{ item.json.id }}/repository/files/group_vars%2Fall%2F_infos%2Eyaml"
+    method: POST
+    validate_certs: no
+    headers:
+      PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      branch: "master"
+      content: |
+        ---
+        client_id: {{ item.json.name }}
+      commit_message: "Initial commit: Add default inventory file"
+    status_code: [201]
+  loop: "{{ create_repo_results.results }}"
+  loop_control:
+    label: "{{ item.json.name | default(item.item) }}"
+  when:
+    - create_repo_results.results is defined
+    - item.status == 201
+
+- name: "REPO_MANAGEMENT | Build created_repos list"
+  ansible.builtin.set_fact:
+    created_repos: "{{ create_repo_results.results | default([]) | selectattr('status', 'equalto', 201) | map(attribute='json.name') | list }}"

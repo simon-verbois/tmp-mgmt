@@ -1,0 +1,12 @@
+---
+- name: Playbook for podman deployment
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_podman/setup.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+# ansible-playbook playbooks/managed_services/redhat_podman/setup.yaml -i sv-xxxxlvuxx.rh.xxxx.local, -e auto_reboot=true
+
+  roles:
+    - role: redhat_podman
+

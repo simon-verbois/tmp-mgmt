@@ -1,0 +1,46 @@
+# roles/tools/tasks/server_decommission/vcenter/delete_vm.yaml
+
+---
+- name: "VCENTER | Delete VM block"
+  delegate_to: localhost
+  block:
+    - name: "VCENTER | Search VM"
+      ansible.builtin.include_tasks:
+        file: search_vm.yaml
+
+    - name: "VCENTER | Delete VM {{ inventory_hostname_short | lower }} (if Linux)"
+      community.vmware.vmware_guest:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+        state: absent
+        force: true
+      when: os_type == "linux"
+      register: vm_deletion_result
+
+    - name: "VCENTER | Set the final status message"
+      ansible.builtin.set_fact:
+        final_status_msg: |-
+          {% if os_type != 'linux' %}
+          • Host {{ inventory_hostname_short | lower }} found but not deleted (OS: <b>{{ os_type }}</b>)<br>
+          {% elif vm_deletion_result.changed %}
+          • <b>Host {{ inventory_hostname_short | lower }} successfully deleted on {{ current_vcenter.key }}</b><br>
+          {% endif %}
+
+  rescue:
+    - name: "VCENTER | Set the failure message"
+      ansible.builtin.set_fact:
+        final_status_msg: |-
+          {% if 'Failed to find virtual machine' in (ansible_failed_result.msg | default('')) %}
+          • Host {{ inventory_hostname_short | lower }} not found on {{ current_vcenter.key }}<br>
+          {% else %}
+          ⚠️ <b>ERROR: vCenter operation failed on {{ current_vcenter.key }}:</b> {{ ansible_failed_result.msg | default('unknown error') }}<br>
+          {% endif %}
+
+  always:
+    - name: "VCENTER | Append the final status to the mail content"
+      ansible.builtin.set_fact:
+        mail_content: "{{ mail_content | default('') }}{{ final_status_msg | default('') }}"

@@ -1,0 +1,11 @@
+# roles/named/tasks/push_config/03_reload_service.yaml
+
+---
+- name: Execute the reload only if the checks script end correctly
+  block:
+  - name: Reload RNDC
+    ansible.builtin.shell: /sbin/rndc reload
+
+  - name: Clean RNDC cache
+    ansible.builtin.shell: /sbin/rndc flush
+  when: checkdns_execution_result.rc == 0

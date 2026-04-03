@@ -1,0 +1,20 @@
+# roles/tools/tasks/server_pre_decom_start/centreon/02_force_check.yaml
+
+---
+- name: "CENTREON | Trigger bulk force check for host and services in one go"
+  ansible.builtin.uri:
+    url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/resources/check"
+    method: POST
+    headers:
+      X-AUTH-TOKEN: "{{ __centreon_token }}"
+    body_format: json
+    body: >-
+      {% set resources_list = [{'type': 'host', 'id': centreon_host_id | int, 'parent': none}] %}
+      {% for svc in host_services_response.json.result | default([]) %}
+      {%   set _ = resources_list.append({'type': 'service', 'id': svc.id | int, 'parent': {'id': centreon_host_id | int}}) %}
+      {% endfor %}
+      {{ {'check': {'is_forced': true}, 'resources': resources_list} | to_json }}
+    status_code: [200, 201, 204]
+  delegate_to: localhost
+  become: false
+  when: centreon_host_id is defined

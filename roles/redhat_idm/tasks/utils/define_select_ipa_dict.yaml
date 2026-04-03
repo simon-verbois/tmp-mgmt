@@ -1,0 +1,27 @@
+# roles/redhat_idm/tasks/utils/define_select_ipa_dict.yaml
+
+---
+- name: Convert clients_id* to list object
+  ansible.builtin.set_fact: 
+    clients_id_excluded: "{{ __clients_id_excluded_prompted | split(';') }}" # format: 1141;7957;...
+    clients_id: "{{ __clients_id_prompted | split(';') }}" # format: 1141;7957;...
+  
+- name: Full clients_id with all IPA from __ipa_infos
+  ansible.builtin.set_fact:
+    clients_id: "{{ __ipa_infos.keys() | map('split', '_') | map('first') | unique | list }}" # format: 1141_prd;7957_prd;...
+  when: __clients_id_prompted | length <= 0
+
+- name: Exclude clients_id_excluded from clients_id
+  ansible.builtin.set_fact:
+    clients_id: "{{ clients_id | difference(clients_id_excluded) }}"
+  when: __clients_id_excluded_prompted | length > 0
+
+- name: Create selected_ipa dictionary with filtered items
+  ansible.builtin.set_fact:
+    selected_ipa: >-
+      {{
+        __ipa_infos | dict2items
+        | selectattr('key', 'match', '^(' + clients_id | map('string') | join('|') + ')_')
+        | selectattr('key', 'search', __target_environment | default(''))
+        | items2dict
+      }}

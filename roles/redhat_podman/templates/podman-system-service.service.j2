@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+# Podman system service unit — RHEL 7 compatible
+# Equivalent fonctionnel d'un Quadlet
+
+[Unit]
+Description={{ service_description | default('Podman container service') }}
+After=network.target
+Wants=network.target
+
+[Service]
+User={{ podman_service_account_name }}
+Group={{ podman_service_account_name }}
+
+ExecStartPre=-/usr/bin/podman stop {{ service_container_name }}
+ExecStartPre=-/usr/bin/podman rm {{ service_container_name }}
+ExecStart=/usr/bin/podman run \
+    --name {{ service_container_name }} \
+{% if service_publish_ports is defined %}
+{% for port in service_publish_ports %}
+    --publish {{ port }} \
+{% endfor %}
+{% endif %}
+{% if service_volumes is defined %}
+{% for vol in service_volumes %}
+    --volume {{ vol }} \
+{% endfor %}
+{% endif %}
+    {{ service_image }}
+ExecStop=/usr/bin/podman stop {{ service_container_name }}
+ExecStopPost=/usr/bin/podman rm -f {{ service_container_name }}
+
+Restart=always
+RestartSec=10
+
+Environment=HOME={{ podman_user_fact.home }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ podman_user_fact.uid }}
+
+[Install]
+WantedBy=multi-user.target

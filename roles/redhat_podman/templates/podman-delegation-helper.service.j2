@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+# Helper service to ensure cgroup delegation for Podman user on RHEL8
+# Based on Red Hat KB: https://access.redhat.com/solutions/5913671
+
+[Unit]
+Description=Ensure cgroup delegation for Podman user {{ podman_service_account_name }}
+After=multi-user.target systemd-logind.service user-0.slice
+Wants=systemd-logind.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Wait for system to be fully ready
+ExecStartPre=/bin/sleep 10
+
+# Apply delegation
+ExecStart=/bin/bash -c '\
+    # Log start \
+    echo "Starting cgroup delegation for user {{ podman_service_account_name }} (UID: {{ podman_user_uid }})"; \
+    \
+    # Reload systemd to pick up any changes \
+    systemctl daemon-reload; \
+    \
+    # Restart systemd-logind to apply delegation \
+    systemctl restart systemd-logind; \
+    sleep 5; \
+    \
+    # Restart the user service \
+    systemctl restart user@{{ podman_user_uid }}.service; \
+    sleep 3; \
+    \
+    # Verify delegation \
+    CONTROLLERS=$(cat /sys/fs/cgroup/user.slice/user-{{ podman_user_uid }}.slice/user@{{ podman_user_uid }}.service/cgroup.controllers 2>/dev/null); \
+    if [ -n "$CONTROLLERS" ]; then \
+        echo "Cgroup delegation successful. Controllers: $CONTROLLERS"; \
+    else \
+        echo "Warning: Cgroup controllers not fully delegated. This may require manual intervention."; \
+    fi \
+'
+
+[Install]
+WantedBy=multi-user.target

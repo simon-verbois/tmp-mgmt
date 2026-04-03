@@ -1,0 +1,14 @@
+---
+- name: Playbook to deploy internal pubkey on redhat IDM
+  hosts: localhost
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_idm/tools/add_internal_pubkey.yaml -e "__clients_id_prompted='XXXX'"
+
+  vars:
+    REDHAT_IDM_MANAGING: true
+    enable_add_pubkey: true
+
+  roles:
+    - common
+    - redhat_idm

@@ -1,0 +1,49 @@
+# roles/tools/tasks/server_extend_swap/vcenter/get_disk_info.yaml
+
+---
+- name: "VCENTER | Get disk info block"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search VM"
+      ansible.builtin.include_tasks:
+        file: search_vm.yaml
+
+    - name: "VCENTER | Gather full VM information"
+      community.vmware.vmware_guest_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+      register: vm_all_info
+
+    - name: "VCENTER | Get disk information"
+      community.vmware.vmware_guest_disk_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+      register: vm_disk_info_raw
+
+    - name: "VCENTER | Store disk dictionary and connection info"
+      ansible.builtin.set_fact:
+        vm_disks_dict: "{{ vm_disk_info_raw.guest_disk_info }}"
+        vcenter_conn:
+          hostname: "{{ current_vcenter.value.url }}"
+          username: "{{ current_vcenter.value.username }}"
+          password: "{{ current_vcenter.value.password }}"
+          datacenter: "{{ vm_details.datacenter }}"
+
+    - name: "VCENTER | Break loop"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "VM {{ inventory_hostname_short | lower }} not found, trying next vCenter..."

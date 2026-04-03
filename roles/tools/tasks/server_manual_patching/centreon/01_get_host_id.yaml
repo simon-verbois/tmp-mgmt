@@ -1,0 +1,49 @@
+# roles/tools/tasks/server_manual_patching/centreon/01_get_host_id.yaml
+
+---
+- name: "CENTREON | Gather local facts"
+  ansible.builtin.setup:
+  delegate_to: localhost
+  run_once: true
+
+- name: "CENTREON | Authentication"
+  ansible.builtin.uri:
+    url: "https://{{ __centreon_fqdn }}/centreon/api/latest/login"
+    method: POST
+    body_format: json
+    body:
+      security:
+        credentials:
+          login: "{{ __centreon_user }}"
+          password: "{{ __centreon_password }}"
+  register: centreon_login_response
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: "CENTREON | Set Token Fact"
+  ansible.builtin.set_fact:
+    __centreon_token: "{{ centreon_login_response.json.security.token }}"
+  run_once: true
+
+- name: "CENTREON | Search host ID by inventory name"
+  ansible.builtin.uri:
+    url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/resources?search=%7B%22name%22%3A%7B%22%24rg%22%3A%22{{ inventory_hostname_short | lower }}%22%7D%7D&types=%5B%22host%22%5D"
+    method: GET
+    headers:
+      X-AUTH-TOKEN: "{{ __centreon_token }}"
+    return_content: yes
+  register: centreon_search
+  delegate_to: localhost
+  become: false
+
+- name: "CENTREON | Set Host ID Fact"
+  ansible.builtin.set_fact:
+    centreon_host_id: "{{ (centreon_search.json.result | map(attribute='id') | list | first) | default(none) }}"
+
+- name: "CENTREON | Validate Host Presence"
+  ansible.builtin.fail:
+    msg: |
+      Host '{{ inventory_hostname_short | lower }}' not found in Centreon.
+      The API returned 0 results. Check if the host is named differently in the UI.
+  when: centreon_host_id is none

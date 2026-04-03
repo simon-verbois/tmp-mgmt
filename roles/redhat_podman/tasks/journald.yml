@@ -1,0 +1,87 @@
+# roles/redhat_podman/tasks/journald.yml
+
+---
+- name: "JOURNALD | Ensure machine-id is present for persistent journal"
+  ansible.builtin.command:
+    cmd: systemd-machine-id-setup
+  changed_when: false # This command is idempotent and for setup purposes.
+
+- name: "JOURNALD | Create persistent journal directory with correct permissions"
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: '2755'
+
+- name: "JOURNALD | Ensure journald configuration directory exists"
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: '0755'
+
+- name: "JOURNALD | Configure for persistent storage and better user separation"
+  ansible.builtin.template:
+    src: journald-user-access.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-user-access.conf
+    backup: yes
+    mode: '0644'
+  register: journald_config
+
+- name: "JOURNALD | Restart journald service if configuration changed"
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  when: journald_config.changed
+
+- name: "JOURNALD | Flush journald logs on RHEL 9+ after a configuration change"
+  ansible.builtin.command:
+    cmd: journalctl --flush
+  when:
+    - journald_config.changed
+    - ansible_distribution == 'RedHat' and ansible_distribution_major_version | int >= 9
+  changed_when: false
+
+# ==============================================================================
+# Configure user-specific journal access script
+# ==============================================================================
+
+- name: "USER SCRIPT | Create bin directory for user scripts"
+  ansible.builtin.file:
+    path: "/opt/{{ podman_service_account_name }}/bin"
+    state: directory
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ podman_service_account_name }}"
+    mode: '0755'
+  when: podman_configure_journal_access | default(true)
+
+- name: "USER SCRIPT | Create journal access wrapper script"
+  ansible.builtin.template:
+    src: journal-wrapper.sh.j2
+    dest: "/opt/{{ podman_service_account_name }}/bin/logs"
+    owner: "{{ podman_service_account_name }}"
+    group: "{{ podman_service_account_name }}"
+    mode: '0755'
+  vars:
+    user_home: "/opt/{{ podman_service_account_name }}"
+  when: podman_configure_journal_access | default(true)
+
+- name: "USER SCRIPT | Test script accessibility"
+  ansible.builtin.shell:
+    cmd: "sudo -u {{ podman_service_account_name }} -i which logs"
+  register: logs_script_test
+  failed_when: false
+  changed_when: false
+
+- name: "USER SCRIPT | Display journal access information"
+  ansible.builtin.debug:
+    msg:
+      - "Journal access configured for {{ podman_service_account_name }}"
+      - "Script location: /opt/{{ podman_service_account_name }}/bin/logs"
+      - "Script accessible via PATH: {{ 'Yes' if logs_script_test.rc == 0 else 'No - Check PATH in .bashrc or profile' }}"
+      - "Available commands:"
+      - "- journalctl --user (direct access to user journals)"
+      - "- logs service my-web-app (via wrapper script)"
+      - "- logs follow (follow user journals)"
+      - "- logs help (show help)"
+  when: podman_configure_journal_access | default(true)

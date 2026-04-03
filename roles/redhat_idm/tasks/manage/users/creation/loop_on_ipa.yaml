@@ -1,0 +1,90 @@
+# roles/redhat_idm/tasks/manage/users/creation/01_loop_on_ipa.yaml
+
+---
+- block:
+  - name: Parse user data into a dictionary
+    ansible.builtin.set_fact:
+      csv_lines: "sep=,;Username,Password,Client ID,IPA Domain;"
+      users_dict: >-
+        {%- set result = {} -%}
+
+        {%- if __data_prompted is defined and __data_prompted | string | trim | length > 0 -%}
+          {%- set lines = __data_prompted.strip().split('\n') -%}
+          {%- for line in lines -%}
+            {%- if line | trim | length > 0 -%}
+              {%- set fields = line.split(';') -%}
+              {%- if fields | length >= 5 -%}
+                {%- set _ = result.update({
+                  fields[0]: {
+                    'firstname': fields[1],
+                    'lastname': fields[2],
+                    'mail': fields[3],
+                    'groups': fields[4],
+                    'homefolder': ipa_default_homedir + '/' + fields[0],
+                    'shell': ipa_default_shell,
+                    'service_account': __user_service_account | default(false) | bool
+                  }
+                }) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+
+        {%- else -%}
+          {%- if __username is defined and not (__username | string).startswith('{{') -%}
+            {%- set _ = result.update({
+              __username: {
+                'firstname': __user_firstname,
+                'lastname': __user_lastname,
+                'mail': __user_mail,
+                'groups': __user_groups,
+                'homefolder': ipa_default_homedir + '/' + __username,
+                'shell': ipa_default_shell,
+                'service_account': __user_service_account | default(false) | bool
+              }
+            }) -%}
+          {%- endif -%}
+        {%- endif -%}
+        
+        {{ result }}
+
+  - name: Failed if users_dict is empty
+    ansible.builtin.fail:
+      msg: "users_dict is empty, stopping execution."
+    when: users_dict | length == 0
+
+  - name: Loop on users dict
+    ansible.builtin.include_tasks: loop_on_users.yaml
+    loop: '{{ users_dict | dict2items }}'
+    loop_control:
+      loop_var: user_infos
+      label: "Sensitive data is hidden."
+    vars:
+      username: "{{ user_infos.key }}"
+      user_firstname: "{{ user_infos.value.firstname }}"
+      user_lastname: "{{ user_infos.value.lastname }}"
+      user_mail: "{{ user_infos.value.mail }}"
+      user_groups: "{{ user_infos.value.groups }}"
+      user_homefolder: "{{ user_infos.value.homefolder }}"
+      user_shell: "{{ user_infos.value.shell }}"
+      user_service_account: "{{ user_infos.value.service_account }}"
+
+  - name: "Create csv result file for {{ ipa_server }}"
+    ansible.builtin.lineinfile:
+      insertafter: EOF
+      create: true
+      dest: "{{ working_dir }}/ipa_create_users_{{ current_ipa.key }}_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.csv"
+      line: "{{ line }}"
+    loop: "{{ csv_lines | split(';') }}"
+    loop_control:
+      loop_var: line
+      label: "Sensitive data is hidden."
+    when:
+      - line != "" and csv_lines is defined
+      - user_creation_result is defined and not user_creation_result.failed
+
+  rescue:
+  - name: Fill mail_content with error message
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        The user_dict dict cannot be empty, stopping execution.

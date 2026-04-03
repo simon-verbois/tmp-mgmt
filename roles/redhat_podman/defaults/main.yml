@@ -1,0 +1,69 @@
+# roles/redhat_podman/defaults/main.yml
+
+---
+podman_service_account_name: svc-podman
+podman_service_account_home_base: ""  # If empty, will be determined based on storage
+podman_service_account_shell: /bin/bash
+podman_service_account_groups: []
+
+# Storage configuration
+# podman_volume_groups: []
+# podman_mountpoints: []
+
+# Podman configuration
+podman_configure_journald: true
+podman_enable_cgroups_v2: true
+podman_configure_user_delegation: true
+podman_validate_on_completion: true
+
+# Delegation options (Red Hat KB solution)
+podman_disable_pids_limit: false  # Set to true to disable pids_limit in containers.conf
+podman_create_delegation_helper: true  # Create helper service for boot-time delegation
+
+# Container images to load
+# podman_image_files: []
+
+# Quadlet services to deploy
+# podman_quadlet_files: []
+
+# Registry configuration
+podman_insecure_registries: []
+podman_registry_mirrors: []
+podman_blocked_registries: []
+
+# Proxy configuration (optional)
+# podman_http_proxy: ""
+# podman_https_proxy: ""
+# podman_no_proxy: ""
+
+# User delegation resources (for custom configuration)
+podman_user_delegation_resources:
+  - cpu
+  - cpuset
+  - memory
+  - io
+  - pids
+
+# Auto reboot option (can be overridden at runtime)
+auto_reboot: false
+
+# Standard Journald COnfiguration
+podman_journald_config:
+  Storage: "persistent"
+  Compress: "yes"
+  SplitMode: "uid"
+  SystemMaxUse: "2G"
+  SystemKeepFree: "1G"
+  SystemMaxFileSize: "64M"
+  RuntimeMaxUse: "512M"
+  RuntimeKeepFree: "128M"
+  RuntimeMaxFileSize: "32M"
+  MaxRetentionSec: "2weeks"
+  MaxFileSec: "1week"
+
+podman_journal_access_groups:
+  - "systemd-journal"
+
+# Classic systemd unit files for RHEL 7 (equivalent des Quadlets)
+# Fichiers à placer dans roles/redhat_podman/files/systemd/
+podman_systemd_unit_files: []

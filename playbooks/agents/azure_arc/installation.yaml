@@ -1,0 +1,14 @@
+---
+- name: Playbook to install zure Arc agent
+  hosts: azure_arc
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/azure_arc/installation.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    INSTALL_AZURE_ARC_AGENT: true
+
+  roles:
+    - common
+    - azure_arc

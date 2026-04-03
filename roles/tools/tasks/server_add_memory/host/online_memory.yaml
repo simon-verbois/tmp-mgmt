@@ -1,0 +1,48 @@
+# roles/tools/tasks/server_add_memory/host/online_memory.yaml
+
+---
+- name: "HOST | Bring all offline memory blocks online"
+  ansible.builtin.shell: |
+    set -e
+    BROUGHT_ONLINE=0
+    for mem_dir in /sys/devices/system/memory/memory[0-9]*; do
+      STATE_FILE="$mem_dir/state"
+      if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "offline" ]; then
+        echo online > "$STATE_FILE"
+        BROUGHT_ONLINE=$((BROUGHT_ONLINE + 1))
+      fi
+    done
+    echo "$BROUGHT_ONLINE"
+  become: true
+  register: mem_blocks_brought_online
+  changed_when: mem_blocks_brought_online.stdout | int > 0
+
+- name: "HOST | Record AFTER memory"
+  ansible.builtin.shell: |
+    awk '/MemTotal/ {printf "%.2f", $2/1048576}' /proc/meminfo
+  become: true
+  register: mem_after
+  changed_when: false
+
+- name: "HOST | Extension summary"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _before_gb: "{{ (os_mem_info.mem_total_kb | float / 1048576) | round(2) }}"
+    _report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║            MEMORY EXTENSION - EXECUTION REPORT               ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {{ "║  %-60s║" | format("Requested:        " ~ requested_memory_gb ~ " GB (" ~ requested_memory_mb ~ " MB)") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("BEFORE") }}
+      {{ "║  %-60s║" | format("MemTotal:         " ~ _before_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("AFTER") }}
+      {{ "║  %-60s║" | format("MemTotal:         " ~ mem_after.stdout | trim ~ " GB") }}
+      {{ "║  %-60s║" | format("Blocks Online:    " ~ mem_blocks_brought_online.stdout | trim) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("STATUS:           OK") }}
+      ╚══════════════════════════════════════════════════════════════╝
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ _report }}"

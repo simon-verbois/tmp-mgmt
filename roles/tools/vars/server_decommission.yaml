@@ -1,0 +1,29 @@
+# roles/tools/vars/server_decommission.yaml
+
+---
+__mail_subject: "[LAF] Decom - {{ inventory_hostname_short }}"
+
+
+############################
+##         Gitlab         ##
+############################
+## List of gitlab projects where to search for occurrences
+## The client project (under ict-las/clients) is dynamically managed during the playbook execution
+__gitlab_projects_list: 
+  ebrc-provisioning-specs: # Provisioning
+    url: https://{{ __gitlab_fqdn }}/-/ide/project/ict/ebrc-provisioning-specs/edit/master/-
+    id: 157
+    group: ict
+  ansible_spm: # Live SPM
+    url: https://{{ __gitlab_fqdn }}/-/ide/project/ict/ansible_spm/edit/master/-
+    id: 219
+    group: ict
+  ebrc-provisioning-rhel: # Provisioning
+    url: https://{{ __gitlab_fqdn }}/-/ide/project/ict-las/ebrc-provisioning-rhel/edit/master/-
+    id: 165
+    group: ict-las
+  2000: # DNS
+    url: https://{{ __gitlab_fqdn }}/-/ide/project/ict-las/clients/2000/edit/master/-
+    id: 652
+    group: ict
+

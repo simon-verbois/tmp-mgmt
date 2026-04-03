@@ -1,0 +1,16 @@
+# roles/tools/tasks/server_tweaks/motd/00_main.yaml
+
+---
+- block:
+  - name: Deploy motd.sh 
+    ansible.builtin.template:
+      src: motd.sh.j2
+      dest: /etc/profile.d/motd.sh
+      mode: '0644'
+      owner: root
+      group: root
+
+  rescue:
+  - name: Handle errors during server tuning
+    ansible.builtin.debug:
+      msg: "Failed to deploy motd."

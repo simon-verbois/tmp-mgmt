@@ -1,0 +1,18 @@
+---
+- name: Lifecycle - Decommission server from infrastructure
+  hosts: all
+  gather_facts: false
+  serial: 1
+  ignore_unreachable: yes
+
+# Usage
+# cp import/decommission.ini.sample import/decommission.ini
+# vim import/decommission.ini
+# ansible-playbook playbooks/tools/lifecycle/server_decommission.yaml -i import/decommission.ini
+
+  vars:
+    SERVER_DECOMMISSION: true
+
+  roles:
+    - common
+    - tools

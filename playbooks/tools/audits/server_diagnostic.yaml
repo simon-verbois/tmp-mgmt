@@ -1,0 +1,16 @@
+---
+- name: Audit - Run general server health diagnostics
+  hosts: localhost
+  gather_facts: false
+  ignore_unreachable: yes
+
+# Usage
+# ansible-playbook playbooks/tools/audits/server_diagnostic.yaml -e "target_server=sv-xxxxlvuxx.rh.xxxx.local"
+
+  vars:
+    SERVER_DIAGNOSTIC: true
+
+  roles:
+    - common
+    - tools
+    

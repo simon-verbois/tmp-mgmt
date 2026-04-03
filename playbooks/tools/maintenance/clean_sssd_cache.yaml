@@ -1,0 +1,14 @@
+---
+- name: Maintenance - Clear SSSD cache and restart service
+  hosts: all
+  become: true
+  gather_facts: false
+
+# Usage
+# ansible-playbook playbooks/tools/maintenance/clean_sssd_cache.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    CLEAN_SSSD_CACHE: true
+
+  roles:
+    - tools

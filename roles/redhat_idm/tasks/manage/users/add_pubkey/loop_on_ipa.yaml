@@ -1,0 +1,8 @@
+# roles/redhat_idm/tasks/manage/users/add_pubkey/01_loop_on_ipa.yaml
+
+---
+- name: Loop on all users
+  ansible.builtin.include_tasks: loop_on_users.yaml
+  loop: "{{ deep_data | dict2items | map(attribute='value.users') | select('defined') | flatten }}"
+  loop_control:
+    label: "{{ item.user }}"

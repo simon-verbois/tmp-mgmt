@@ -1,0 +1,18 @@
+# roles/elastic_agent/tasks/installation/main.yaml
+
+---
+- block:
+  - ansible.builtin.include_tasks: ../utils/create_working_dir.yaml
+  - ansible.builtin.include_tasks: checks/01_already_installed.yaml
+  - ansible.builtin.include_tasks: checks/02_service_exist.yaml
+  - ansible.builtin.include_tasks: checks/03_proxy_pass.yaml
+  - ansible.builtin.include_tasks: checks/04_server_storage.yaml
+
+  - ansible.builtin.include_tasks: ../utils/install_rsync.yaml
+  - ansible.builtin.include_tasks: installation/01_download_tarball_on_server.yaml
+
+  - ansible.builtin.include_tasks: checks/05_tarball_content_is_present.yaml
+  - ansible.builtin.include_tasks: installation/02_install_agent.yaml
+
+  always:
+  - ansible.builtin.include_tasks: ../utils/clean_working_dir.yaml

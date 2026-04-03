@@ -1,0 +1,14 @@
+# roles/azure_arc/tasks/installation/host/extend_lvm.yaml
+
+---
+- name: "HOST | Rescan disk and resize PV"
+  ansible.builtin.shell: |
+    set -e
+    echo 1 > /sys/class/block/{{ __azurearc_os_disk_info.base_disk }}/device/rescan
+    sleep 2
+    pvresize {{ __azurearc_os_disk_info.pv_device }}
+  register: __azurearc_pvresize_result
+
+- name: "HOST | Debug PV resize result"
+  ansible.builtin.debug:
+    msg: "{{ __azurearc_pvresize_result.stdout_lines }}"

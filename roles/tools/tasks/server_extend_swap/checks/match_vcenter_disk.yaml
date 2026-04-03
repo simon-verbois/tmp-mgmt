@@ -1,0 +1,35 @@
+# roles/tools/tasks/server_extend_swap/checks/match_vcenter_disk.yaml
+
+---
+- name: "MATCH | Check if VM was found on vCenter"
+  ansible.builtin.set_fact:
+    vcenter_match_error: "VM not found on any vCenter"
+  when: vm_disks_dict is not defined
+
+- name: "MATCH | Find VMware disks matching OS disk size ({{ swap_info.disk_size_bytes }} bytes)"
+  ansible.builtin.set_fact:
+    matched_vm_disks: "{{ matched_vm_disks | default([]) + [item] }}"
+  loop: "{{ vm_disks_dict | dict2items }}"
+  when:
+    - vcenter_match_error is not defined
+    - item.value.capacity_in_bytes | string == swap_info.disk_size_bytes | string
+
+- name: "MATCH | Check match result"
+  ansible.builtin.set_fact:
+    vcenter_match_error: >-
+      {% if matched_vm_disks | default([]) | length == 0 -%}
+        No vCenter disk matches OS disk size
+      {%- else -%}
+        Multiple vCenter disks match OS size
+      {%- endif %}
+  when:
+    - vcenter_match_error is not defined
+    - matched_vm_disks is not defined or matched_vm_disks | length != 1
+
+- name: "MATCH | Set target VM disk variables"
+  ansible.builtin.set_fact:
+    target_vm_disk_key: "{{ matched_vm_disks[0].value.key }}"
+    target_vm_disk_label: "{{ matched_vm_disks[0].value.label }}"
+    target_vm_disk_unit: "{{ matched_vm_disks[0].value.unit_number }}"
+    target_vm_disk_controller: "{{ matched_vm_disks[0].value.controller_key }}"
+  when: vcenter_match_error is not defined

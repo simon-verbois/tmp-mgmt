@@ -1,0 +1,37 @@
+# roles/elastic_agent/tasks/installation/installation/01_download_tarball_on_server.yaml
+
+---
+- block:
+  - name: Download Elastic Agent tarball on ansible controller
+    delegate_to: tower.csv.local
+    run_once: true
+    ansible.builtin.get_url:
+      url: "{{ __internal_depot_url }}/{{ __elastic_agent_tarball }}"
+      dest: "{{ working_dir }}/{{ __elastic_agent_tarball }}"
+      mode: '0644'
+    
+  - name: "Send {{ __elastic_agent_tarball }} on the servers (using rsync)"
+    ansible.posix.synchronize:
+      src: "{{ working_dir }}/{{ __elastic_agent_tarball }}"
+      dest: "{{ __tmp_elastic_directory }}/{{ __elastic_agent_tarball }}"
+
+  - name: "Unarchive {{ __elastic_agent_tarball }} on the servers"
+    ansible.builtin.unarchive:
+      src: "{{ __tmp_elastic_directory }}/{{ __elastic_agent_tarball }}"
+      dest: "{{ __tmp_elastic_directory }}"
+      owner: root
+      group: root
+      mode: '0755'
+      remote_src: true
+      extra_opts:
+        - --strip-components=1
+
+  rescue:
+  - name: "Cleanup {{ __tmp_elastic_directory }}"
+    ansible.builtin.file:
+      path: "{{ __tmp_elastic_directory }}"
+      state: absent  
+
+  - name: "Force failure after cleanup"
+    ansible.builtin.fail:
+      msg: "Download failed. Check the logs above for details. Execution stopped."

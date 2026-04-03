@@ -1,0 +1,22 @@
+# roles/named/tasks/push_config/main.yaml
+
+---
+- block:
+  # Clone latest data from Gitlab
+  # https://gitlab.rh.ebrc.local/ict-las/clients/2000
+  - ansible.builtin.include_tasks: ../utils/create_working_dir.yaml
+  - ansible.builtin.include_tasks: ../utils/clone_git_project.yaml
+
+  # Transfer bind config files
+  - ansible.builtin.include_tasks: 01_transfert_config_files.yaml
+ 
+  # Check DNS configuration
+  - ansible.builtin.include_tasks: 02_execute_checks_script.yaml
+
+  # Reload only if everythings goes well
+  - ansible.builtin.include_tasks: 03_reload_service.yaml
+
+  always:
+  # Clean up working directory
+  - ansible.builtin.include_tasks: ../utils/clean_working_dir.yaml
+

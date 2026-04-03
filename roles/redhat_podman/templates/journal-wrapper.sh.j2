@@ -1,0 +1,43 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Journal access wrapper for {{ podman_service_account_name }}
+
+case "$1" in
+    "user"|"--user"|"-u"|"")
+        journalctl --user "${@:2}"
+        ;;
+    "service"|"-s")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 service <service-name>"
+            exit 1
+        fi
+        journalctl --user -u "$2" "${@:3}"
+        ;;
+    "follow"|"-f")
+        journalctl --user -f "${@:2}"
+        ;;
+    "help"|"-h"|"--help")
+        cat << 'HELP'
+Journal Access (User Services Only)
+
+Usage: logs [command] [options]
+
+Commands:
+  user        Show user journals (default)
+  service     Show specific user service
+  follow      Follow user journals
+  help        Show this help
+
+Examples:
+  logs                       # Show all user journals
+  logs service my-web-app    # Show my-web-app service logs
+  logs follow                # Follow user journals
+  logs user --since "1h ago" # Last hour user journals
+
+Security: Only user services accessible, no system logs.
+HELP
+        ;;
+    *)
+        journalctl --user "$@"
+        ;;
+esac

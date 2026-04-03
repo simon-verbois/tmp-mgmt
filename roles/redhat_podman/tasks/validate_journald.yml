@@ -1,0 +1,62 @@
+# roles/redhat_podman/tasks/validate_journald.yml
+
+---
+- name: Check journald configuration file
+  ansible.builtin.stat:
+    path: /etc/systemd/journald.conf.d/99-user-access.conf
+  register: journald_config_file
+
+- name: Check journald service status
+  ansible.builtin.command: systemctl is-active systemd-journald
+  register: journald_service_status
+  changed_when: false
+  failed_when: false
+
+- name: Test user journal access
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} journalctl --user -n 1 --no-pager
+  register: user_journal_test
+  changed_when: false
+  failed_when: false
+  when: podman_service_account_name is defined
+
+- name: Check user group membership
+  ansible.builtin.shell: |
+    groups {{ podman_service_account_name }} | grep -q systemd-journal && echo "member" || echo "not_member"
+  register: journal_group_membership
+  changed_when: false
+  when: podman_service_account_name is defined
+
+- name: Check journal directory permissions
+  ansible.builtin.stat:
+    path: /var/log/journal
+  register: journal_dir_perms
+
+- name: Generate journald validation report
+  ansible.builtin.set_fact:
+    journald_report:
+      config_file_exists: "{{ journald_config_file.stat.exists | default(false) }}"
+      service_active: "{{ journald_service_status.stdout | default('unknown') }}"
+      user_can_access: "{{ 'Yes' if user_journal_test.rc == 0 else 'No' }}"
+      group_membership: "{{ journal_group_membership.stdout | default('unknown') }}"
+      journal_dir_group: "{{ journal_dir_perms.stat.gr_name | default('unknown') }}"
+      status: >-
+        {{ 'PASS' if (journald_config_file.stat.exists and
+                      journald_service_status.stdout == 'active' and
+                      user_journal_test.rc == 0)
+           else 'FAIL' }}
+
+- name: Display journald validation report
+  ansible.builtin.debug:
+    msg:
+      - "Journald Validation: {{ journald_report.status }}"
+      - "Configuration file exists: {{ journald_report.config_file_exists }}"
+      - "Service active: {{ journald_report.service_active }}"
+      - "User can access journals: {{ journald_report.user_can_access }}"
+      - "User in systemd-journal group: {{ journald_report.group_membership }}"
+      - "Journal directory group: {{ journald_report.journal_dir_group }}"
+
+- name: Show journal access test results
+  ansible.builtin.debug:
+    msg: "User journal access test output: {{ user_journal_test.stdout | default('Test not run') }}"
+  when: user_journal_test.stdout is defined

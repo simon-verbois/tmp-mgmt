@@ -1,0 +1,116 @@
+# roles/tools/tasks/server_pre_decom_start/centreon/01_remove_downtime.yaml
+
+---
+- name: "CENTREON | Main block for downtime cancellation and data prep"
+  delegate_to: localhost
+  block:
+    - name: "CENTREON | Gather date_time facts locally"
+      ansible.builtin.setup:
+      run_once: true
+
+    - name: "CENTREON | Login to get API Token"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/login"
+        method: POST
+        body_format: json
+        body:
+          security:
+            credentials:
+              login: "{{ __centreon_user }}"
+              password: "{{ __centreon_password }}"
+      register: centreon_login_response
+      run_once: true
+
+    - name: "CENTREON | Set Token Fact"
+      run_once: true
+      ansible.builtin.set_fact:
+        __centreon_token: "{{ centreon_login_response.json.security.token }}"
+
+    - name: "CENTREON | Search host ID (Broad Search on name and alias)"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/resources?search={{ search_payload | to_json | urlencode }}&types={{ '[\"host\"]' | urlencode }}"
+        method: GET
+        headers:
+          X-AUTH-TOKEN: "{{ __centreon_token }}"
+      vars:
+        search_payload:
+          $or:
+            - name:
+                $rg: "{{ inventory_hostname_short | lower }}"
+            - alias:
+                $rg: "{{ inventory_hostname_short | lower }}"
+      register: centreon_search
+
+    - name: "CENTREON | Check if Host was found"
+      ansible.builtin.assert:
+        that: centreon_search.json.result | length > 0
+        fail_msg: "Host {{ inventory_hostname_short }} not found in Centreon (checked both name and alias)."
+
+    - name: "CENTREON | Set Host IDs fact (List)"
+      ansible.builtin.set_fact:
+        centreon_host_ids: "{{ centreon_search.json.result | map(attribute='id') | list }}"
+
+    - name: "CENTREON | Get active downtimes for the specific Host IDs"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/downtimes?search={{ search_payload | to_json | urlencode }}&limit=500"
+        method: GET
+        headers:
+          X-AUTH-TOKEN: "{{ __centreon_token }}"
+        timeout: 60
+      vars:
+        search_payload:
+          $and:
+            - host.id:
+                $eq: "{{ item | int }}"
+      loop: "{{ centreon_host_ids }}"
+      register: active_downtimes_results
+
+    - name: "CENTREON | Extract and strictly filter downtime IDs locally"
+      ansible.builtin.set_fact:
+        downtime_ids: >-
+          {%- set safe_ids = [] -%}
+          {%- for res in active_downtimes_results.results -%}
+            {%- if res.json is defined and res.json.result is defined -%}
+              {%- for dt in res.json.result -%}
+                {%- if dt.host is defined and dt.host.id is defined and dt.host.id in centreon_host_ids -%}
+                  {%- set _ = safe_ids.append(dt.id) -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ safe_ids | unique }}
+
+    - name: "CENTREON | Debug targeted downtime IDs for safety check"
+      ansible.builtin.debug:
+        msg: "Found {{ downtime_ids | length }} downtimes strictly belonging to host IDs {{ centreon_host_ids }}."
+
+    - name: "CENTREON | Cancel downtimes for host(s) and their services"
+      ansible.builtin.shell: |
+        curl --silent --show-error --insecure \
+          --output /dev/null --write-out "%{http_code}" \
+          -X DELETE \
+          "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/downtimes/{{ item }}" \
+          -H "X-AUTH-TOKEN: {{ __centreon_token }}"
+      loop: "{{ downtime_ids }}"
+      register: centreon_downtime_cancel_result
+      changed_when: centreon_downtime_cancel_result.stdout in ["200", "201", "204"]
+      failed_when: centreon_downtime_cancel_result.stdout not in ["200", "201", "204", "404", "500"]
+      when: downtime_ids | length > 0
+
+    - name: "CENTREON | Set single Host ID fact for force check"
+      ansible.builtin.set_fact:
+        centreon_host_id: "{{ centreon_host_ids[0] }}"
+      when: centreon_host_ids | length > 0
+
+    - name: "CENTREON | Get host services for force check"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/resources?search={{ search_payload | to_json | urlencode }}&types={{ '[\"service\"]' | urlencode }}"
+        method: GET
+        headers:
+          X-AUTH-TOKEN: "{{ __centreon_token }}"
+      vars:
+        search_payload:
+          parent.id:
+            $eq: "{{ centreon_host_id | int }}"
+      register: host_services_response
+      when: centreon_host_id is defined

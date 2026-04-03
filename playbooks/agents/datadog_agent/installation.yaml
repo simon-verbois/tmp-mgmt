@@ -1,0 +1,14 @@
+---
+- name: Playbook to install Datadog agent
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/datadog_agent/installation.yaml -i clients/XXXX/hosts.ini -l sv-xxxxlvuxx.rh.xxxx.local
+
+  vars:
+    INSTALL_DATADOG_AGENT: true
+
+  roles:
+    - common
+    - datadog_agent

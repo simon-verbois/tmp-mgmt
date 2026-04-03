@@ -1,0 +1,32 @@
+# roles/tools/tasks/server_add_memory/vcenter/extend_memory.yaml
+
+---
+- name: "VCENTER | Apply memory extension block"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done | default(false)
+  block:
+    - name: "VCENTER | Search VM"
+      ansible.builtin.include_tasks:
+        file: search_vm.yaml
+
+    - name: "VCENTER | Set memory to {{ requested_memory_mb }} MB ({{ requested_memory_gb }} GB)"
+      community.vmware.vmware_guest:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ vm_details.datacenter }}"
+        uuid: "{{ vm_details.uuid }}"
+        hardware:
+          memory_mb: "{{ requested_memory_mb | int }}"
+      register: memory_extension_result
+
+    - name: "VCENTER | Break loop"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | Extension failed or VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "VM not found on {{ current_vcenter.value.url }} or memory extension failed. Check error above."

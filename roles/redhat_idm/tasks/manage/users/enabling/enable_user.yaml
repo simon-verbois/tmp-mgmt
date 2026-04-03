@@ -1,0 +1,32 @@
+# roles/redhat_idm/tasks/manage/users/enabling/03_enable_user.yaml
+
+---
+- block:
+  - name: Enabling IPA user {{ username }} on {{ ipa_server }}
+    delegate_to: "{{ ipa_server }}"
+    redhat.rhel_idm.ipauser:
+      name: "{{ username }}"
+      state: enabled
+      ipaadmin_principal: "{{ ipa_user }}"
+      ipaadmin_password: "{{ ipa_pass }}"
+    register: user_enabling_result
+
+  - name: Update mail_content based on enabling status
+    ansible.builtin.set_fact:
+      mail_content: |
+        {{ mail_content }}
+        {% if user_enabling_result.changed %}
+        {{ ipa_domain }} - {{ username }} account has been correctly enabled.<br>
+        {% else %}
+        <b>{{ ipa_domain }} - {{ username }} account was already enabled.</b><br>
+        {% endif %}
+
+  rescue:
+  - name: Fill mail_content with error message
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        <b>{{ ipa_domain }} - ⚠️ Failed enable {{ username | default('username-var') }} account.</b><br>
+        <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
+        {{ user_enabling_result.msg | default(['No msg captured']) }}
+        </pre>

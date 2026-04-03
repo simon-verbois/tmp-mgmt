@@ -1,0 +1,120 @@
+# roles/redhat_podman/tasks/main.yml
+
+---
+- name: Validate required variables
+  ansible.builtin.include_tasks: validate_variables.yml
+  tags: [always]
+
+- name: Fix root password authentication issues
+  ansible.builtin.include_tasks: root_password_fix.yml
+  tags: [always, root_password_fix]
+
+- name: Install Podman and dependencies
+  ansible.builtin.include_tasks: install.yml
+  tags: [install, podman_install]
+
+- name: Configure LVM and storage
+  ansible.builtin.include_tasks: storage.yml
+  when: podman_volume_groups is defined or podman_mountpoints is defined
+  tags: [storage, podman_storage]
+
+- name: Create and configure service account
+  ansible.builtin.include_tasks: user.yml
+  tags: [user, podman_user]
+
+- name: Configure systemd journald
+  ansible.builtin.include_tasks: journald.yml
+  when: podman_configure_journald | default(true)
+  tags: [journald, podman_journald]
+
+- name: Configure cgroups v2 for RHEL8
+  ansible.builtin.include_tasks: cgroups.yml
+  when:
+    - podman_enable_cgroups_v2 | default(true)
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version == '8'
+  tags: [cgroups, podman_cgroups]
+
+- name: Configure user service delegation (RHEL 8+)
+  ansible.builtin.include_tasks: delegation.yml
+  when:
+    - podman_configure_user_delegation | default(true)
+    - ansible_distribution_major_version | int >= 8
+    - not (podman_reboot_required | default(false))
+  tags: [delegation, podman_delegation, podman_quadlets]
+
+# Note: Appel consolidé unique pour SELinux
+- name: Configure SELinux contexts
+  ansible.builtin.include_tasks: selinux.yml
+  tags: [selinux, podman_selinux, podman_quadlets]
+
+- name: Handle container images
+  ansible.builtin.include_tasks: images.yml
+  when: not (podman_reboot_required | default(false))
+  tags: [images, podman_images]
+
+# ===== GESTION DES QUADLETS =====
+
+- name: Check cgroups version for Quadlet deployment
+  ansible.builtin.shell: |
+    if [ -f /sys/fs/cgroup/cgroup.controllers ]; then echo "v2"; else echo "v1"; fi
+  register: current_cgroups_version
+  changed_when: false
+  when:
+    - podman_quadlet_files is defined
+    - podman_quadlet_files | length > 0
+    - ansible_distribution_major_version | int >= 8
+  tags: [podman_quadlets]
+
+- name: Deploy Quadlet services (if cgroups v2 active)
+  ansible.builtin.include_tasks: quadlets.yml
+  when:
+    - podman_quadlet_files is defined
+    - podman_quadlet_files | length > 0
+    - ansible_distribution_major_version | int >= 8
+    - current_cgroups_version.stdout == "v2"
+    - not (podman_reboot_required | default(false))
+  tags: [podman_quadlets]
+
+- name: Deploy classic systemd units (RHEL 7)
+  ansible.builtin.import_tasks: systemd_units.yml
+  when:
+    - ansible_distribution_major_version == '7'
+    - podman_systemd_unit_files is defined
+    - podman_systemd_unit_files | length > 0
+  tags: [systemd_units, podman_units]
+
+- name: Validate Podman setup
+  ansible.builtin.include_tasks: validate.yml
+  when: podman_validate_on_completion | default(true)
+  tags: [validate, podman_validate]
+
+# Section de déploiement post-reboot manuel (inchangée dans la logique, mais bénéficie des correctifs dans quadlets.yml)
+- name: Deploy Quadlets after manual reboot
+  when:
+    - podman_quadlet_files is defined
+    - podman_quadlet_files | length > 0
+  tags: [podman_quadlets_post_reboot, never]
+  block:
+    - name: Check cgroups v2
+      ansible.builtin.shell: |
+        if [ -f /sys/fs/cgroup/cgroup.controllers ]; then echo "v2"; else echo "v1"; fi
+      register: manual_reboot_cgroups_check
+      changed_when: false
+
+    - name: Fail if still v1
+      ansible.builtin.fail:
+        msg: "Cgroups v2 is NOT active. Check GRUB config."
+      when: manual_reboot_cgroups_check.stdout == "v1"
+
+    - name: Ensure delegation (manual post-reboot)
+      ansible.builtin.include_tasks: delegation.yml
+      when: manual_reboot_cgroups_check.stdout == "v2"
+
+    - name: Deploy Quadlets (manual post-reboot)
+      ansible.builtin.include_tasks: quadlets.yml
+      when: manual_reboot_cgroups_check.stdout == "v2"
+
+- name: Exécution des tâches post-installation et vérifications
+  ansible.builtin.include_tasks: post_install.yml
+  tags: [validate, post_install]

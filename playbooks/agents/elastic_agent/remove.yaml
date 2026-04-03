@@ -1,0 +1,15 @@
+---
+- name: Playbook to remove elastic agent
+  hosts: all
+  gather_facts: true
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/elastic_agent/remove.yaml -i clients/XXXX/elastic-agent.ini -l elastic_agent
+
+  vars:
+    REMOVE_ELASTIC_AGENT: true
+
+  roles:
+    - common
+    - elastic_agent

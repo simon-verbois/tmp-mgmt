@@ -1,0 +1,73 @@
+# roles/redhat_podman/tasks/cgroups.yml
+
+---
+- name: Check current cgroup version
+  ansible.builtin.shell: |
+    if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+      echo "v2"
+    else
+      echo "v1"
+    fi
+  register: current_cgroup_version
+  changed_when: false
+
+- name: Display current cgroup version
+  ansible.builtin.debug:
+    msg: "Current cgroup version: {{ current_cgroup_version.stdout }}"
+
+- name: Configure cgroups v2 if not already enabled
+  when: current_cgroup_version.stdout == "v1"
+  block:
+    # Vérification idempotente : on regarde si l'argument est déjà présent dans le noyau par défaut
+    - name: Check if cgroups v2 argument is already configured in GRUB
+      ansible.builtin.shell: |
+        grubby --info=DEFAULT | grep args | grep -q "systemd.unified_cgroup_hierarchy=1"
+      register: grub_arg_check
+      failed_when: false
+      changed_when: false
+
+    # Correction : Utilisation de grubby au lieu de grub2-mkconfig
+    # grubby met à jour toutes les entrées BLS existantes de manière fiable
+    - name: Enable cgroups v2 via grubby (RHEL 8/9 recommended method)
+      ansible.builtin.command:
+        cmd: grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=1"
+      when: grub_arg_check.rc != 0
+      register: grubby_update
+
+    - name: Display reboot requirement notice
+      ansible.builtin.debug:
+        msg:
+          - "⚠️  REBOOT REQUIRED!"
+          - "Cgroups v2 configuration has been updated via grubby."
+          - "System must be rebooted for changes to take effect."
+          - "After reboot, Quadlets will function properly."
+          - ""
+          - "To verify after reboot, run:"
+          - "  cat /proc/cmdline"
+          - "  cat /sys/fs/cgroup/cgroup.controllers"
+      when: grubby_update.changed
+
+    - name: Set reboot required fact
+      ansible.builtin.set_fact:
+        podman_reboot_required: true
+      when: grubby_update.changed
+
+- name: Verify cgroups v2 is active (if already configured)
+  when: current_cgroup_version.stdout == "v2"
+  block:
+    - name: Check cgroup controllers available
+      ansible.builtin.shell: |
+        cat /sys/fs/cgroup/cgroup.controllers
+      register: available_controllers
+      changed_when: false
+
+    - name: Display available cgroup controllers
+      ansible.builtin.debug:
+        msg:
+          - "✓ Cgroups v2 is active"
+          - "Available controllers: {{ available_controllers.stdout }}"
+          - "No reboot required"
+
+    - name: Ensure reboot not required
+      ansible.builtin.set_fact:
+        podman_reboot_required: false

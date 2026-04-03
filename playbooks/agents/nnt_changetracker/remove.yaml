@@ -1,0 +1,15 @@
+---
+- name: Playbook for NNT agent removing
+  hosts: all
+  become: true
+  gather_facts: true
+
+# Usage
+# ansible-playbook playbooks/agents/nnt_changetracker/remove.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    NNT_REMOVE_AGENT: true
+
+  roles:
+    - common
+    - nnt_changetracker

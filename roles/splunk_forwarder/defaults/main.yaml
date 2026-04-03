@@ -1,0 +1,13 @@
+# roles/splunk_forwarder/defaults/main.yaml
+
+---
+__splunkfw_repo_url: "http://yumrepos.csv.local/repos/lin/Splunk/Splunk_Forwarder/"
+__splunkfw_repo_gpgkey: "http://yumrepos.csv.local/repos/lin/Splunk/Splunk_Forwarder/PGP-KEY.pub"
+__splunkfw_package: "splunkforwarder"
+
+__splunkfw_service: "SplunkForwarder.service"
+
+__splunkfw_user: "splunkfwd"
+__splunkfw_group: "splunkfwd"
+
+__splunkfw_default_server_ip: "192.168.104.133:8089"

@@ -1,0 +1,129 @@
+# roles/elastic_agent/tasks/installation/checks/04_server_storage.yaml
+
+---
+- block:
+    # ---------------------------------------------------------
+    # 1. PREPARATION & LVM SETUP
+    # ---------------------------------------------------------
+
+    # 1. Pre-create the target directory
+    - name: "Ensure /opt/Elastic directory exists"
+      ansible.builtin.file:
+        path: "/opt/Elastic/"
+        state: directory
+        mode: '0755'
+
+    # 2. Gather specific facts for Storage and LVM
+    - name: "Gather storage and LVM facts"
+      ansible.builtin.setup:
+        gather_subset:
+          - hardware
+          - mounts
+
+    # 3. Check if the directory is already a mount point
+    - name: "Check if /opt/Elastic is a mount point"
+      ansible.builtin.set_fact:
+        is_elastic_mounted: "{{ ansible_mounts | selectattr('mount', 'equalto', '/opt/Elastic') | list | length > 0 }}"
+
+    # 4. LVM Creation Block (Only runs if not mounted)
+    - block:
+        # Priority Logic:
+        # 1. Check if '__default_vg' (e.g., vg_data) exists AND has >5GB free.
+        # 2. If not, check if 'vg_redhat' exists AND has >5GB free.
+        - name: "Select Volume Group (Priority: {{ __default_vg }} > vg_redhat)"
+          ansible.builtin.set_fact:
+            target_vg: >-
+              {%- set candidates = [__default_vg, 'vg_redhat'] | unique -%}
+              {%- set ns = namespace(selected='') -%}
+              {%- for vg in candidates -%}
+                {%- if ns.selected == '' -%}
+                  {# Check if VG exists in facts AND has >= 5GB free #}
+                  {%- if vg in ansible_lvm.vgs and ansible_lvm.vgs[vg].free_g | float >= 5.0 -%}
+                    {%- set ns.selected = vg -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{- ns.selected -}}
+
+        - name: "Fail if no suitable Volume Group found (Needs 5GB free)"
+          ansible.builtin.fail:
+            msg: >-
+              Could not find a valid VG with 5GB free space.
+              Checked candidates: {{ __default_vg }}, vg_redhat.
+              Available VGs on system: {{ ansible_lvm.vgs.keys() | list }}
+          when: target_vg | length == 0
+
+        - name: "Create Logical Volume lv_opt_elastic (5GB) on {{ target_vg }}"
+          community.general.lvol:
+            vg: "{{ target_vg }}"
+            lv: "lv_opt_elastic"
+            size: "5G"
+
+        - name: "Create xfs filesystem on lv_opt_elastic"
+          community.general.filesystem:
+            fstype: xfs
+            dev: "/dev/{{ target_vg }}/lv_opt_elastic"
+
+        - name: "Mount /opt/Elastic"
+          ansible.posix.mount:
+            path: "/opt/Elastic/"
+            src: "/dev/{{ target_vg }}/lv_opt_elastic"
+            fstype: xfs
+            state: mounted
+
+        # Critical: Refresh facts so the next tasks see the new mount and size
+        - name: "Refresh facts after mounting"
+          ansible.builtin.setup:
+            gather_subset:
+              - mounts
+      when: not is_elastic_mounted
+
+    # ---------------------------------------------------------
+    # 2. SPACE VERIFICATION (Target + Temp)
+    # ---------------------------------------------------------
+
+    - name: "Get content size of {{ __internal_depot_url }}/{{ __elastic_agent_tarball }}"
+      ansible.builtin.uri:
+        url: "{{ __internal_depot_url }}/{{ __elastic_agent_tarball }}"
+        method: HEAD
+      register: tarball_size_on_depot_b
+
+    - name: "Create temporary directory"
+      ansible.builtin.file:
+        state: directory
+        path: "{{ __tmp_elastic_directory }}"
+
+    # Check space on destination (/opt/Elastic)
+    - name: "Check available storage on /opt/Elastic"
+      ansible.builtin.shell: "df -k /opt/Elastic --output=avail | tail -1"
+      register: available_storage_elastic_kb
+      changed_when: false
+
+    # Check space on temp directory (where download happens)
+    - name: "Check available storage on {{ __tmp_elastic_directory }}"
+      ansible.builtin.shell: "df -k '{{ __tmp_elastic_directory }}' --output=avail | tail -1"
+      register: available_storage_tmp_kb
+      changed_when: false
+
+    - name: "Verify available space (Target: 2.3x size, Temp: 1.5x size)"
+      ansible.builtin.assert:
+        that:
+          # 1. Verify /opt/Elastic (Installation space + future logs)
+          - (available_storage_elastic_kb.stdout | trim | int) > (tarball_size_on_depot_b.content_length | int * 2.3 / 1024)
+          # 2. Verify Temp Directory (Download space + safety buffer)
+          - (available_storage_tmp_kb.stdout | trim | int) > (tarball_size_on_depot_b.content_length | int * 1.5 / 1024)
+        fail_msg: >-
+          Not enough space detected.
+          [1] /opt/Elastic requires ~{{ (tarball_size_on_depot_b.content_length | int * 2.3 / 1024 / 1024) | round(2) }} MB.
+          [2] {{ __tmp_elastic_directory }} requires ~{{ (tarball_size_on_depot_b.content_length | int * 1.5 / 1024 / 1024) | round(2) }} MB.
+        success_msg: "Storage check passed: Both /opt/Elastic and {{ __tmp_elastic_directory }} have sufficient space."
+
+  rescue:
+    - name: "Cleanup {{ __tmp_elastic_directory }}"
+      ansible.builtin.file:
+        path: "{{ __tmp_elastic_directory }}"
+        state: absent
+
+    - name: "Force failure after cleanup"
+      ansible.builtin.fail:
+        msg: "Pre-check failed. Check the logs above for storage/LVM details. Execution stopped."

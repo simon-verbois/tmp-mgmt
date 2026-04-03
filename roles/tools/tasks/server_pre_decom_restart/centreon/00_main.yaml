@@ -1,0 +1,8 @@
+# roles/tools/tasks/server_pre_decom_start/centreon/00_main.yaml
+
+---
+- name: Remove host downtimes
+  ansible.builtin.include_tasks: 01_remove_downtime.yaml
+
+- name: Force check (token already fetched)
+  ansible.builtin.include_tasks: 02_force_check.yaml

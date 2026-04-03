@@ -1,0 +1,12 @@
+#################################################################
+##    Ansible managed (refer to Linux Automation Framework)    ##
+##             Your change will be overwritten!!               ##
+#################################################################
+
+[splunkfw]
+name = Splunk Forwarder
+baseurl = {{ __splunkfw_repo_url }}
+gpgcheck = {{ 1 if __splunkfw_repo_gpgkey else 0 }}
+{% if __splunkfw_repo_gpgkey %}
+gpgkey = {{ __splunkfw_repo_gpgkey }}
+{% endif %}

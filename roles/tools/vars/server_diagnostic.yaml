@@ -1,0 +1,51 @@
+# roles/tools/vars/server_diagnostic.yaml
+
+---
+__mail_subject: '[LAF] Diag - {{ target_server }}'
+
+__rhel_services_list:
+  - sssd
+  - rsyslog
+  - systemd-journald
+  - systemd-udevd
+  - auditd
+  - tuned
+  - subscription-manager
+  - firewalld
+  - NetworkManager
+  - libvirtd
+  - pcp
+  - packagekit
+  - lvm2-monitor
+  - dbus
+  - dnf-makecache
+  - polkit
+  - gssproxy
+  - kdump
+  - irqbalance
+  - multipathd
+  - iscsid
+  - rpcbind
+  - chronyd
+  - rngd
+  - mdmonitor
+  - smartd
+  - fwupd
+  - cloud-init
+  - cockpit
+  - systemd-resolved
+  - systemd-logind
+  - dnf-automatic
+
+__rhel_shared_services_list:
+  - squid
+  - podman
+
+__rhel_storage_managed_mounts:
+  - /
+  - /boot
+  - /home
+  - /tmp
+  - /var
+  - /var/log
+  - /var/log/audit

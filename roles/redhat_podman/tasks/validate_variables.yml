@@ -1,0 +1,75 @@
+# roles/redhat_podman/tasks/validate_variables.yml
+
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - podman_service_account_name is defined
+      - podman_service_account_name | length > 0
+      - podman_service_account_name | regex_search('^[a-zA-Z][a-zA-Z0-9_-]*$')
+    fail_msg: "podman_service_account_name must be defined and be a valid Unix username"
+    success_msg: "Service account name '{{ podman_service_account_name }}' is valid"
+
+- name: Validate storage configuration
+  when: podman_volume_groups is defined or podman_mountpoints is defined
+  block:
+    - name: Validate volume groups
+      ansible.builtin.assert:
+        that:
+          - item.name is defined
+          - item.data_device is defined
+        fail_msg: "Volume group must have 'name' and 'data_device' defined"
+      loop: "{{ podman_volume_groups | default([]) }}"
+      when: podman_volume_groups is defined
+
+    - name: Validate mountpoints basic requirements
+      ansible.builtin.assert:
+        that:
+          - item.name is defined
+          - item.vg is defined
+          - item.mount_path is defined
+        fail_msg: "Mountpoint must have 'name', 'vg', and 'mount_path' defined"
+      loop: "{{ podman_mountpoints | default([]) }}"
+      when: podman_mountpoints is defined
+
+    - name: Validate mountpoints size configuration
+      ansible.builtin.assert:
+        that:
+          - (item.size_gb is defined and item.size_gb is number) or (item.size_percent is defined and item.size_percent is number)
+          - not (item.size_gb is defined and item.size_percent is defined)
+        fail_msg: |
+          Mountpoint '{{ item.name }}' must have either 'size_gb' OR 'size_percent' defined, but not both.
+          - size_gb: for fixed size in GB (e.g., size_gb: 20)
+          - size_percent: for percentage of VG (e.g., size_percent: 100)
+      loop: "{{ podman_mountpoints | default([]) }}"
+      when: podman_mountpoints is defined
+
+    - name: Validate percentage values
+      ansible.builtin.assert:
+        that:
+          - item.size_percent > 0
+          - item.size_percent <= 100
+        fail_msg: "size_percent must be between 1 and 100 (found: {{ item.size_percent }})"
+      loop: "{{ podman_mountpoints | default([]) }}"
+      when:
+        - podman_mountpoints is defined
+        - item.size_percent is defined
+
+- name: Validate proxy configuration
+  when: podman_http_proxy is defined or podman_https_proxy is defined
+  block:
+    - name: Check proxy URL format
+      ansible.builtin.assert:
+        that:
+          - podman_http_proxy | default('http://test') | regex_search('^https?://')
+          - podman_https_proxy | default('http://test') | regex_search('^https?://')
+        fail_msg: "Proxy URLs must start with http:// or https://"
+
+- name: Display configuration summary
+  ansible.builtin.debug:
+    msg:
+      - "Service Account: {{ podman_service_account_name }}"
+      - "Storage Configured: {{ 'Yes' if (podman_mountpoints is defined) else 'No' }}"
+      - "Storage Method: {{ 'Mixed' if (podman_mountpoints | default([]) | selectattr('size_gb', 'defined') | list | length > 0 and podman_mountpoints | default([]) | selectattr('size_percent', 'defined') | list | length > 0) else ('Fixed size (GB)' if (podman_mountpoints | default([]) | selectattr('size_gb', 'defined') | list | length > 0) else ('Percentage' if (podman_mountpoints | default([]) | selectattr('size_percent', 'defined') | list | length > 0) else 'None')) }}"
+      - "Images to Load: {{ podman_images_to_load | default([]) | length }}"
+      - "Quadlet Services: {{ podman_quadlet_files | default([]) | length }}"

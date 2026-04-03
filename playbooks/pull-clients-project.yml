@@ -1,0 +1,87 @@
+---
+- hosts: localhost
+  name: Manage Client Projects (GitLab)
+  connection: local
+  gather_facts: no
+
+  vars_prompt:
+    - name: clients_id_prompted
+      prompt: |-
+        (Separate them with a space OR leave empty for all clients)
+        Clients ID
+      private: no
+
+  # Loading the variables file from the common role
+  vars_files:
+    - "{{ playbook_dir }}/../roles/common/vars/gitlab.yaml"
+
+  vars:
+    # --- Configuration ---
+    gitlab_api_url: "https://{{ __gitlab_fqdn }}"
+    gitlab_group_api_path: "ict-las%2Fclients"
+    git_base_url: "git@{{ __gitlab_fqdn }}:ict-las/clients"
+
+    # --- Directories ---
+    root_dir: "{{ playbook_dir | dirname }}"
+    working_dir: "{{ root_dir }}/clients"
+
+  pre_tasks:
+    - name: "Validate GitLab Token presence"
+      ansible.builtin.fail:
+        msg: "The variable '__gitlab_ictlas_token' is missing or empty in gitlab.yaml."
+      when: 
+        - clients_id_prompted | length == 0
+        - __gitlab_ictlas_token is not defined or __gitlab_ictlas_token | length == 0
+
+    - name: "Process User Input"
+      ansible.builtin.set_fact:
+        clients_id: "{{ clients_id_prompted.split(' ') | reject('equalto', '') | list }}"
+      when: clients_id_prompted | length > 0
+
+    - name: "Retrieve all projects from GitLab Group"
+      block:
+        - name: "Call GitLab API to list projects"
+          ansible.builtin.uri:
+            url: "{{ gitlab_api_url }}/api/v4/groups/{{ gitlab_group_api_path }}/projects?per_page=100&include_subgroups=false"
+            method: GET
+            headers:
+              PRIVATE-TOKEN: "{{ __gitlab_ictlas_token }}"
+            status_code: 200
+            return_content: yes
+          register: gitlab_response
+
+        - name: "Debug: Inspect API response structure"
+          ansible.builtin.debug:
+            msg: "First project data: {{ gitlab_response.json[0] }}"
+            verbosity: 1
+          when: gitlab_response.json | length > 0
+
+        - name: "Extract project paths from API response"
+          ansible.builtin.set_fact:
+            clients_id: "{{ gitlab_response.json | selectattr('archived', 'defined') | rejectattr('archived') | map(attribute='path') | list }}"
+      
+      when: clients_id is not defined or clients_id | length == 0
+
+  tasks:
+    - name: "Ensure clients directory exists"
+      ansible.builtin.file:
+        path: "{{ working_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Debug: List of clients to process"
+      ansible.builtin.debug:
+        msg: "Processing {{ clients_id | length }} repositories..."
+        verbosity: 1
+
+    - name: "Clone or Pull Client Repositories"
+      ansible.builtin.git:
+        repo: "{{ git_base_url }}/{{ item }}.git"
+        dest: "{{ working_dir }}/{{ item }}"
+        update: yes
+        version: HEAD
+        accept_hostkey: yes
+      loop: "{{ clients_id }}"
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: yes

@@ -1,0 +1,20 @@
+---
+collections:
+  - name: ansible.windows
+    version: 2.1.0
+  - name: community.vmware
+    version: 3.11.2
+  - name: community.general
+    version: 8.3.0
+  - name: ansible.utils
+    version: 2.12.0
+  - name: ansible.posix
+    version: 1.5.4
+  - name: servicenow.itsm
+    version: 2.2.0
+  - name: ansible.controller
+    version: 4.5.20
+  - name: ansible.hub
+    version: 1.0.0
+  - name: redhat.rhel_idm
+    version: 1.12.0

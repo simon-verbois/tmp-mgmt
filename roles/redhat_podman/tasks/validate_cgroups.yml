@@ -1,0 +1,65 @@
+# roles/redhat_podman/tasks/validate_cgroups.yml
+
+---
+- name: Check current cgroup version
+  ansible.builtin.shell: |
+    if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+      echo "v2"
+    else
+      echo "v1"
+    fi
+  register: cgroup_version_check
+  changed_when: false
+
+- name: Check available cgroup controllers (v2 only)
+  ansible.builtin.shell: cat /sys/fs/cgroup/cgroup.controllers
+  register: available_controllers
+  changed_when: false
+  failed_when: false
+  when: cgroup_version_check.stdout == "v2"
+
+- name: Check GRUB configuration for cgroups v2
+  ansible.builtin.shell: |
+    grep "systemd.unified_cgroup_hierarchy=1" /etc/default/grub && echo "configured" || echo "not_configured"
+  register: grub_cgroups_config
+  changed_when: false
+
+- name: Check current kernel command line
+  ansible.builtin.shell: |
+    grep "systemd.unified_cgroup_hierarchy=1" /proc/cmdline && echo "active" || echo "not_active"
+  register: cmdline_cgroups_check
+  changed_when: false
+  failed_when: false
+
+- name: Generate cgroups validation report
+  ansible.builtin.set_fact:
+    cgroups_report:
+      version: "{{ cgroup_version_check.stdout }}"
+      configured_in_grub: "{{ 'Yes' if 'configured' in grub_cgroups_config.stdout else 'No' }}"
+      active_in_cmdline: "{{ 'Yes' if 'active' in cmdline_cgroups_check.stdout else 'No' }}"
+      controllers: "{{ available_controllers.stdout | default('N/A - cgroups v1 active') }}"
+      status: >-
+        {{ 'PASS' if cgroup_version_check.stdout == 'v2'
+           else ('CONFIGURED - Reboot required' if 'configured' in grub_cgroups_config.stdout and 'not_active' in cmdline_cgroups_check.stdout
+           else 'FAIL - Not configured') }}
+
+- name: Display cgroups validation report
+  ansible.builtin.debug:
+    msg:
+      - "Cgroups Validation: {{ cgroups_report.status }}"
+      - "Current Version: {{ cgroups_report.version }}"
+      - "Configured in GRUB: {{ cgroups_report.configured_in_grub }}"
+      - "Active in kernel cmdline: {{ cgroups_report.active_in_cmdline }}"
+      - "Available Controllers: {{ cgroups_report.controllers }}"
+
+- name: Warning for cgroups v1 with Quadlets
+  ansible.builtin.debug:
+    msg:
+      - "WARNING: Quadlets require cgroups v2!"
+      - "Current system is running cgroups v1."
+      - "{{ 'System configured for cgroups v2 but needs reboot to activate.' if 'configured' in grub_cgroups_config.stdout else 'System needs to be configured for cgroups v2 first.' }}"
+      - "{{ 'Reboot the system to activate cgroups v2.' if 'configured' in grub_cgroups_config.stdout else 'Run the cgroups configuration task first.' }}"
+  when:
+    - cgroup_version_check.stdout == "v1"
+    - podman_quadlet_files is defined
+    - podman_quadlet_files | length > 0

@@ -1,0 +1,49 @@
+# roles/redhat_podman/tasks/validate.yml
+
+---
+- name: Run Podman info to validate setup
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman info --format json 2>/dev/null | sed -n '/^{/,$p'
+  register: podman_info
+  changed_when: false
+  check_mode: no
+
+- name: Parse Podman info
+  ansible.builtin.set_fact:
+    podman_info_data: "{{ podman_info.stdout | from_json }}"
+  when: podman_info.stdout | default('') | length > 0
+
+- name: Display Podman configuration summary
+  ansible.builtin.debug:
+    msg:
+      - "Podman Version: {{ podman_info_data.version.Version }}"
+      - "Storage Driver: {{ podman_info_data.store.graphDriverName }}"
+      - "Storage Path: {{ podman_info_data.store.graphRoot }}"
+      - "Runtime: {{ podman_info_data.host.ociRuntime.name }}"
+  when: podman_info_data is defined
+
+- name: Check running containers
+  ansible.builtin.shell: |
+    sudo -u {{ podman_service_account_name }} -i podman ps --format json 2>/dev/null | sed -n '/^\[/,$p'
+  register: running_containers_json
+  changed_when: false
+  check_mode: no
+
+- name: Display running containers count
+  ansible.builtin.debug:
+    msg: "Running containers: {{ (running_containers_json.stdout | from_json | default([])) | length }}"
+  when: running_containers_json.stdout | default('') | length > 0
+
+- name: Validate Quadlet services
+  ansible.builtin.include_tasks: validate_quadlets.yml
+  when: podman_quadlet_files is defined and podman_quadlet_files | length > 0
+  tags:
+    - validate_quadlets
+
+- name: Validate SELinux contexts
+  ansible.builtin.include_tasks: validate_selinux.yml
+  when:
+    - podman_validate_selinux | default(true)
+    - ansible_selinux.status == "enabled"
+  tags:
+    - validate_selinux

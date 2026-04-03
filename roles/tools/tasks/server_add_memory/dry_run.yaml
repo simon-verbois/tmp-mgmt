@@ -1,0 +1,87 @@
+# roles/tools/tasks/server_add_memory/dry_run.yaml
+
+---
+- name: "DRY-RUN | Determine feasibility"
+  ansible.builtin.set_fact:
+    dry_run_ready: "{{ memory_validation_error is not defined }}"
+    dry_run_block_reason: "{{ memory_validation_error | default('') }}"
+
+- name: "DRY-RUN | Generate authorization token"
+  ansible.builtin.set_fact:
+    security_token: "{{ lookup('password', '/dev/null chars=ascii_uppercase,digits length=6') }}"
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Save token payload on target server"
+  ansible.builtin.copy:
+    content: "{{ {'token': security_token, 'requested_memory_gb': requested_memory_gb | string} | to_json }}"
+    dest: "/tmp/memory_extension_token.json"
+    mode: '0600'
+  become: true
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Build feasibility report"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _vc: "{{ vcenter_mem_info | default({}) }}"
+    _mv: "{{ memory_validation | default({}) }}"
+    _has_vc: "{{ vcenter_mem_info is defined }}"
+    _cur_mb: "{{ _vc.memory_mb | default(0) | int }}"
+    _cur_gb: "{{ (_cur_mb | float / 1024) | round(2) }}"
+    _req_mb: "{{ requested_memory_mb | int }}"
+    _req_gb: "{{ requested_memory_gb }}"
+    _delta_mb: "{{ _req_mb | int - _cur_mb | int }}"
+    _os_mem_gb: "{{ (os_mem_info.mem_total_kb | float / 1048576) | round(2) }}"
+    _hw_max_gb: "{{ (_vc.hw_max_memory_mb | default(6291456) | float / 1024) | int }}"
+  ansible.builtin.set_fact:
+    dry_run_report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║            MEMORY EXTENSION - FEASIBILITY REPORT             ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {% if _has_vc | bool %}
+      {{ "║  %-60s║" | format("Current:          " ~ _cur_mb | string ~ " MB (" ~ _cur_gb ~ " GB)") }}
+      {{ "║  %-60s║" | format("Requested:        " ~ _req_mb | string ~ " MB (" ~ _req_gb ~ " GB) (+" ~ _delta_mb | string ~ " MB)") }}
+      {% else %}
+      {{ "║  %-60s║" | format("Requested:        " ~ _req_mb | string ~ " MB (" ~ _req_gb ~ " GB)") }}
+      {% endif %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("OS") }}
+      {{ "║  %-60s║" | format("MemTotal:         " ~ _os_mem_gb ~ " GB") }}
+      {% if _has_vc | bool %}
+      {{ "║  %-60s║" | format("OS/vCenter Match: " ~ (_mv.os_vcenter_match | default(false) | bool | ternary('YES', 'NO (>512 MB drift)'))) }}
+      {% endif %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("VCENTER") }}
+      {% if _has_vc | bool %}
+      {{ "║  %-60s║" | format("VM:               " ~ _vc.vm_name) }}
+      {{ "║  %-60s║" | format("Memory:           " ~ _cur_mb | string ~ " MB") }}
+      {{ "║  %-60s║" | format("Hot Add:          " ~ (_vc.hot_add_enabled | bool | ternary('ENABLED', 'DISABLED'))) }}
+      {{ "║  %-60s║" | format("HW Version:       " ~ _vc.hw_version ~ " (max: " ~ _hw_max_gb | string ~ " GB)") }}
+      {% else %}
+      {{ "║  %-60s║" | format("Status:           VM not found on any vCenter") }}
+      {% endif %}
+      {% if _has_vc | bool %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("VALIDATION") }}
+      {{ "║  %-60s║" | format("Hot Add:          " ~ (_mv.hot_add | default(false) | bool | ternary('YES', 'NO'))) }}
+      {{ "║  %-60s║" | format("Increase:         " ~ (_mv.increase | default(false) | bool | ternary('YES (' ~ _cur_mb | string ~ ' -> ' ~ _req_mb | string ~ ' MB)', 'NO'))) }}
+      {{ "║  %-60s║" | format("HW Limit:         " ~ (_mv.hw_limit_ok | default(false) | bool | ternary('YES (' ~ _req_mb | string ~ ' MB <= ' ~ _hw_max_gb | string ~ ' GB)', 'NO'))) }}
+      {% endif %}
+      {{ _border }}
+      {% if dry_run_ready | bool %}
+      {{ "║ %-61s║" | format("VERDICT:          READY TO EXECUTE") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("TOKEN:            " ~ security_token) }}
+      {% else %}
+      {{ "║ %-61s║" | format("VERDICT:          BLOCKED") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("REASON:           " ~ dry_run_block_reason) }}
+      {% endif %}
+      ╚══════════════════════════════════════════════════════════════╝
+
+- name: "DRY-RUN | Display feasibility report"
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ dry_run_report }}"
+
+- name: "DRY-RUN | Stop execution"
+  ansible.builtin.meta: end_play

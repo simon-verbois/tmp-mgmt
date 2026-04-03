@@ -1,0 +1,11 @@
+# roles/splunk_forwarder/tasks/main.yaml
+
+---
+- name: Include installation tasks
+  ansible.builtin.include_tasks: installation/main.yaml
+  when: INSTALL_SPLUNK_FORWARDER | default(false)
+
+- name: Include removing tasks
+  ansible.builtin.include_tasks: remove/main.yaml
+  when: REMOVE_SPLUNK_FORWARDER | default(false)
+

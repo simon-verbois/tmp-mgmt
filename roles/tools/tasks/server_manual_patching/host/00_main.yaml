@@ -1,0 +1,62 @@
+# roles/tools/tasks/server_manual_patching/host/00_main.yaml
+
+---
+- name: "HOST | Force gathering facts from the target to get the real OS version"
+  ansible.builtin.setup:
+    gather_subset:
+      - distribution
+      
+- name: Set target repositories for current host
+  ansible.builtin.set_fact:
+    target_repositories: "{{ __rhel_patching_repositories[ansible_distribution_major_version] }}"
+
+- name: OS Patching Process (Security & Bugfix)
+  block:
+    # --- RHEL 7 Case ---
+    - name: Update RHEL 7 packages for security and bugfix (YUM)
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+        disablerepo: "*"
+        enablerepo: "{{ target_repositories }}"
+        security: true
+        bugfix: true
+      register: update_result_yum
+      when: ansible_distribution_major_version == "7"
+
+    # --- RHEL 8+ Case ---
+    - name: Update RHEL 8/9 packages for security and bugfix (DNF)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        disablerepo: "*"
+        enablerepo: "{{ target_repositories }}"
+        security: true
+        bugfix: true
+      register: update_result_dnf
+      when: ansible_distribution_major_version | int >= 8
+
+    - name: Consolidate update results
+      ansible.builtin.set_fact:
+        patch_changed: "{{ (update_result_yum.changed | default(false)) or (update_result_dnf.changed | default(false)) }}"
+
+    - name: Reboot server if patches were applied
+      ansible.builtin.reboot:
+        msg: "System reboot after security and bugfix updates"
+        reboot_timeout: 900
+      when: patch_changed
+
+    - name: Update host status (Success)
+      ansible.builtin.set_fact:
+        host_csv_data: "{{ host_csv_data | combine({
+          'status': 'SUCCESS', 
+          'action': 'Security/Bugfix applied' if patch_changed else 'Already up to date'
+        }) }}"
+
+  rescue:
+    - name: Update host status (Failure)
+      ansible.builtin.set_fact:
+        host_csv_data: "{{ host_csv_data | combine({
+          'status': 'FAILED', 
+          'action': 'Update or reboot failed'
+        }) }}"

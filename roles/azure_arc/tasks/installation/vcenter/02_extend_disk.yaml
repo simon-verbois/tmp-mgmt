@@ -1,0 +1,64 @@
+# roles/azure_arc/tasks/installation/vcenter/02_extend_disk.yaml
+
+---
+- name: "VCENTER | Extend disk on {{ current_vcenter.value.url }}"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search for VM {{ inventory_hostname_short | lower }}"
+      community.vmware.vmware_vm_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        vm_name: "{{ inventory_hostname_short | lower }}"
+      register: __azurearc_vm_search
+
+    - name: "VCENTER | Fail if VM not found (triggers rescue)"
+      ansible.builtin.fail:
+        msg: "VM_NOT_FOUND"
+      when: __azurearc_vm_search.virtual_machines | length == 0
+
+    - name: "VCENTER | Set VM details"
+      ansible.builtin.set_fact:
+        __azurearc_vm_details: "{{ __azurearc_vm_search.virtual_machines[0] }}"
+
+    - name: "VCENTER | Calculate new total disk size"
+      ansible.builtin.set_fact:
+        __azurearc_current_disk_gb: "{{ (__azurearc_target_vm_disk.capacity_in_bytes | float / 1073741824) | round(0, 'ceil') | int }}"
+
+    - name: "VCENTER | Set new target size"
+      ansible.builtin.set_fact:
+        __azurearc_new_disk_size_gb: "{{ __azurearc_current_disk_gb | int + __azurearc_vcenter_add_gb | int }}"
+
+    - name: "VCENTER | Debug extension plan"
+      ansible.builtin.debug:
+        msg: >-
+          Extending '{{ __azurearc_target_vm_disk.label }}'
+          (Unit: {{ __azurearc_target_vm_disk.unit_number }},
+          SCSI: {{ __azurearc_target_vm_disk.controller_bus_number }})
+          from {{ __azurearc_current_disk_gb }} GB to {{ __azurearc_new_disk_size_gb }} GB.
+
+    - name: "VCENTER | Execute disk extension"
+      community.vmware.vmware_guest_disk:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ __azurearc_vm_details.datacenter }}"
+        uuid: "{{ __azurearc_vm_details.uuid }}"
+        disk:
+          - scsi_controller: "{{ __azurearc_target_vm_disk.controller_bus_number }}"
+            unit_number: "{{ __azurearc_target_vm_disk.unit_number }}"
+            size_gb: "{{ __azurearc_new_disk_size_gb }}"
+            state: present
+
+    - name: "VCENTER | Mark action done"
+      ansible.builtin.set_fact:
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | Extension failed or VM not found on {{ current_vcenter.value.url }}"
+      ansible.builtin.debug:
+        msg: "Failed on {{ current_vcenter.value.url }}, trying next..."

@@ -1,0 +1,16 @@
+# roles/tools/tasks/server_manual_patching/centreon/00_main.yaml
+
+---
+- block:
+  - name: Get host ID
+    ansible.builtin.include_tasks: 01_get_host_id.yaml
+  - name: Set Downtime
+    ansible.builtin.include_tasks: 02_set_downtime.yaml
+  when: centreon_action == "set_downtime"
+
+- block:
+  - name: Verify Services
+    ansible.builtin.include_tasks: 03_force_check.yaml
+  - name: Verify Services
+    ansible.builtin.include_tasks: 04_check_services.yaml
+  when: centreon_action == "verify_services"

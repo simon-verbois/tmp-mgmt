@@ -1,0 +1,95 @@
+# roles/common/vars/deep_ipa_init_data.yaml
+
+---
+service_accounts:
+  - { user: "svc-laf-ipa", first: "Service", last: "LAF IPA", email: "linux.support@deep.eu" }
+  - { user: "ipa-enrollment", first: "Service", last: "IPA Enrollment", email: "linux.support@deep.eu" }
+
+password_policies:
+  ipausers: { maxlifetime: 90, minlifetime: 1, history: 5, minclasses: 3, minlength: 16, maxfail: 5, failinterval: 60, lockouttime: 1800, priority: 10 }
+  maxlife: { maxlifetime: 9999, minlifetime: 1, history: 5, minclasses: 3, minlength: 16, maxfail: 5, failinterval: 60, lockouttime: 1800, priority: 5 }
+
+use_altusername: # Define here all clients that need the altusername
+  - 1447
+  - 1574
+
+deep_data:
+  linux:
+    user_group: "linux"
+    hbac_rule: "hbac_linux"
+    sudo_rule: "sudo_linux"
+    access_all_hosts: true
+    ipa_admin: true
+    users:
+      - { user: "sverbois", altusername: "el0559", first: "Simon", last: "VERBOIS", email: "Simon.VERBOIS@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK09Yl1h/rFN9PlCC6yKHcE2ZGaYm/NTSCXXB6qSwYoH simon.verbois@deep.eu" }
+      - { user: "jgalliot", altusername: "el0360", first: "Jean-Christophe", last: "GALLIOT", email: "Jean-Christophe.GALLIOT@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMiTP4gFuwo0GCVGHPNcd1WrSI/x+ov2Fc2Ha/JoISmQ jean-christophe.galliot@deep.eu" }
+      - { user: "sgrimm", altusername: "el0367", first: "Sylvain", last: "GRIMM", email: "Sylvain.Grimm@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA1DWrT8os5+wwA+oM8nAuZmxO7TyfU/cViDEjoC3PRB sylvain.grimm@deep.eu" }
+      - { user: "sdrogo", altusername: "el0273", first: "Stefan", last: "DROGO", email: "Stefan.DROGO@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDFYXNUS2NuyU8snV+svlP0BuxYUd6QGuGBxFYqFtNJ7 stefan.drogo@deep.eu" }
+      - { user: "jtugend", altusername: "el0590", first: "Julien", last: "TUGEND", email: "Julien.TUGEND@deep.eu", pubkey: "" }
+      - { user: "mtrani", altusername: "el0439", first: "Marc", last: "TRANI", email: "Marc.TRANI@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINmcU+cG+9YsrfqFfOyHkU7C9M43nDAjvZpStfWULhMQ marc.trani@deep.eu" }
+      - { user: "durbinski", altusername: "el0583", first: "David", last: "URBINSKI", email: "David.URBINSKI@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPRXjDKZsQamxJN5GHZTc1q+ShK+Wyg4LR6gQya5XV51 david.urbinski@deep.eu" }
+      - { user: "mpalmerini", altusername: "deep-52829", first: "Maxime", last: "PALMERINI", email: "Maxime.PALMERINI@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC0qAK10ST0SFkKBWv7KEPtVrP8S97hvltVQMRedxLka maxime.palmerini@deep.eu" }
+      - { user: "cons-ext-dbo", altusername: "", first: "Dominique", last: "BONNEELS", email: "Dominique.BONNEELS@ext.deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJXk27ZaFp1CcPJRMlLl0DgULUPAlWbuLXPC84AiaxoP dominique.bonneels@ext.deep.eu" }
+  db:
+    user_group: "db"
+    hbac_rule: "hbac_db"
+    sudo_rule: "sudo_db"
+    access_all_hosts: false
+    ipa_admin: false
+    users:
+      - { user: "ppelletier", altusername: "el0567", first: "Patrick", last: "PELLETIER", email: "Patrick.PELLETIER@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHgLLQEkVPg8GkxL3FzFA6+tZuMf3LYfk8RvAQzFOSYf patrick.pelletier@deep.eu" }
+      - { user: "jfillon", altusername: "el0327", first: "Jerome", last: "FILLON", email: "Jerome.FILLON@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcVnpblblo/rWILzNu908gqGPPOiJAoz7vOXfGuuFvL Jerome.FILLON@deep.eu" }
+      - { user: "galbert", altusername: "el0569", first: "Geoffrey", last: "ALBERT", email: "Geoffrey.ALBERT@deep.eu", pubkey: "" }
+  monitoring:
+    user_group: "monitoring"
+    hbac_rule: "hbac_monitoring"
+    sudo_rule: "sudo_monitoring"
+    access_all_hosts: false
+    ipa_admin: false
+    users:
+      - { user: "araty", altusername: "el0385", first: "Alexandra", last: "RATY", email: "Alexandra.RATY@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBFfhNTy6weesT+ZH0n2YWPbf2JHLORRKIbbT+c/I+8H alexandra.raty@deep.eu" }
+      - { user: "ynunez", altusername: "el0594", first: "Yoann", last: "NUNEZ", email: "Yoann.NUNEZ@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO26K7ziSZiOVHGOXJ6kB6yKvNuHBIbkXdkXBQVpyw+ yoann.nunez@deep.eu" }
+  cloud-native:
+    user_group: "cloud-native"
+    hbac_rule: "hbac_cloud-native"
+    sudo_rule: "sudo_cloud-native"
+    access_all_hosts: false
+    ipa_admin: false
+    users:
+      - { user: "etabaglio", altusername: "el0564", first: "Emilie", last: "Tabaglio", email: "Emilie.TABAGLIO@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM1VE6ASmsoBPnLfKAjeZv9rtemWcmIDWFnCaL7ZFiTK emilie.tabaglio@deep.eu" }
+      - { user: "sdejardin", altusername: "el0090", first: "Sylvain", last: "Dejardin", email: "Emilie.TABAGLIO@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFRv0o81CRi2VBAPI6rzH5rD/I9x9IDe0LijSc7d/8Yn sylvain.dejardin@deep.eu" }
+  digital-factory:
+    user_group: "digital-factory"
+    hbac_rule: "hbac_digital-factory"
+    sudo_rule: "sudo_digital-factory"
+    access_all_hosts: false
+    ipa_admin: false
+    users:
+      - { user: "oraggi", altusername: "", first: "Olivier", last: "RAGGI", email: "Olivier.RAGGI@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN+vTFLPEFGToY/XwBe+cINn+q3oHSEENSvw082OabNR olivier.raggi@deep.eu" }
+  bl-cloud:
+    user_group: "bl-cloud"
+    hbac_rule: "hbac_bl-cloud"
+    sudo_rule: "sudo_bl-cloud"
+    access_all_hosts: false
+    ipa_admin: false
+    users:
+      - { user: "ohanus", altusername: "", first: "Olivier", last: "HANUS", email: "Olivier.HANUS@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAK8lp8Uy8Ejhf51K/SNI/gl2xNhAXME5wbCB5gCcuJg olivier.hanus@deep.eu" }
+      - { user: "mrobert", altusername: "", first: "Mathieu", last: "ROBERT", email: "Mathieu.ROBERT@deep.eu", pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAK8lp8Uy8Ejhf51K/SNI/gl2xNhAXME5wbCB5gCcuJg olivier.hanus@deep.eu" }
+
+
+
+#soc:
+#user_group: "soc"
+#hbac_rule: "hbac_soc"
+#sudo_rule: "sudo_soc"
+#access_all_hosts: false
+#ipa_admin: false
+#users:
+#- { user: "soc-analyst1", first: "Sarah", last: "Vasseur", email: "s.vasseur@deep.eu" }
+
+#SOC_USERS="ddintrans;Dylan;Dintrans;dylan.dintrans@post.lu     
+#tprofeta;Thomas;Profeta;thomas.profeta@post.lu 
+#aolszewski;Alan;Olszewski;alan.olszewski@post.lu     
+#nblanc;Nathanael;Blanc;nathanael.blanc@post.lu
+#hjreich;Henri;Jreich;henri.jreich@post.lu               
+#bmathieu;Basile;Mathieu;basile.mathieu@post.lu    

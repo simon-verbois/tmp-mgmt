@@ -1,0 +1,14 @@
+---
+- name: Playbook to remove Datadog agent
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/datadog_agent/remove.yaml -i clients/XXXX/hosts.ini -l sv-xxxxlvuxx.rh.xxxx.local
+
+  vars:
+    REMOVE_DATADOG_AGENT: true
+
+  roles:
+    - common
+    - datadog_agent

@@ -1,0 +1,37 @@
+# roles/hashicorp_vault/tasks/unsealing/01_unseal.yaml
+
+---
+- block:
+  - name: "Unseal Vault"
+    ansible.builtin.uri:
+      url: "https://{{ inventory_hostname }}:8200/v1/sys/unseal"
+      method: PUT
+      body: { "key": "{{ item }}" }
+      body_format: json
+      validate_certs: false
+    loop: "{{ __unseal_keys }}"
+    loop_control:
+      label: "Sending key #{{ ansible_loop.index }}"
+      extended: true
+
+  - name: "Verify the final Vault status after the attempt"
+    ansible.builtin.uri:
+      url: "https://{{ inventory_hostname }}:8200/v1/sys/seal-status"
+      method: GET
+      validate_certs: false
+    register: final_vault_status
+
+  - name: "Confirm success or report failure"
+    ansible.builtin.fail:
+      msg: "Failed to unseal Vault on {{ inventory_hostname }}. It is still sealed after sending all keys."
+    when: final_vault_status.json.sealed
+
+  - name: "Report success"
+    ansible.builtin.debug:
+      msg: "Vault on {{ inventory_hostname }} was successfully unsealed."
+    when: not final_vault_status.json.sealed
+
+  rescue:
+  - name: "A critical error occurred during the unseal process"
+    ansible.builtin.fail:
+      msg: "The unseal process was interrupted by an unexpected error: {{ ansible_failed_result }}"

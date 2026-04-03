@@ -1,0 +1,17 @@
+# roles/redhat_idm/tasks/manage/users/password_reset/02_loop_on_users.yaml
+
+---
+- name: Generate random password
+  ansible.builtin.set_fact:
+    generated_password: "{{ lookup('community.general.random_string', length=20, override_special='%()+-/<=>?^_') }}"
+  no_log: true
+
+- name: Include reset user password tasks
+  ansible.builtin.include_tasks: reset_password.yaml
+
+- name: Append user new password to csv
+  ansible.builtin.set_fact:
+    csv_lines: "{{ csv_lines }}{{ username }},\
+                {{ generated_password }},\
+                {{ client_id }},\
+                {{ ipa_domain }};"

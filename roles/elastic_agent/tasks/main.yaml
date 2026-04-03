@@ -1,0 +1,8 @@
+# roles/elastic_agent/tasks/main.yaml
+
+---
+- ansible.builtin.include_tasks: installation/main.yaml
+  when: INSTALL_ELASTIC_AGENT | default(false)
+
+- ansible.builtin.include_tasks: remove/main.yaml
+  when: REMOVE_ELASTIC_AGENT | default(false)

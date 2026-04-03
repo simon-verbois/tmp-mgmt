@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# Configuration de délégation des ressources pour les services utilisateur
+[Service]
+{% if ansible_distribution_major_version | int >= 9 %}
+{# RHEL 9+ : Utiliser DelegateControllers (systemd 250+) #}
+Delegate=yes
+DelegateSubgroup=yes
+{% if podman_user_delegation_resources is defined and podman_user_delegation_resources | length > 0 %}
+DelegateControllers={{ podman_user_delegation_resources | join(' ') }}
+{% else %}
+DelegateControllers=cpu cpuset memory io pids
+{% endif %}
+{% else %}
+{# RHEL 8 : Utiliser Delegate simple (systemd 239) #}
+{% if podman_user_delegation_resources is defined and podman_user_delegation_resources | length > 0 %}
+Delegate={{ podman_user_delegation_resources | join(' ') }}
+{% else %}
+Delegate=cpu cpuset memory io pids
+{% endif %}
+{% endif %}

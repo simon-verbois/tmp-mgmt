@@ -1,0 +1,20 @@
+# roles/tools/tasks/server_add_memory/vcenter/01_search_vm.yaml
+
+---
+- name: "VCENTER | Search {{ inventory_hostname_short | lower }} on {{ current_vcenter.value.url }}"
+  community.vmware.vmware_vm_info:
+    hostname: "{{ current_vcenter.value.url }}"
+    username: "{{ current_vcenter.value.username }}"
+    password: "{{ current_vcenter.value.password }}"
+    validate_certs: false
+    vm_name: "{{ inventory_hostname_short | lower }}"
+  register: vm_search_info
+
+- name: "VCENTER | Fail if VM not found"
+  ansible.builtin.fail:
+    msg: "VM_NOT_FOUND"
+  when: vm_search_info.virtual_machines | length == 0
+
+- name: "VCENTER | Set VM facts"
+  ansible.builtin.set_fact:
+    vm_details: "{{ vm_search_info.virtual_machines[0] }}"

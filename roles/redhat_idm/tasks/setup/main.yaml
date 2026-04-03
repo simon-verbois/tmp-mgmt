@@ -1,0 +1,117 @@
+# roles/redhat_idm/tasks/setup/main.yaml
+
+---
+- name: Create all kind of groups
+  ansible.builtin.include_tasks: tasks/01_groups.yaml
+
+- name: Create all policies
+  ansible.builtin.include_tasks: tasks/02_pw_policies.yaml
+
+- name: Create all rules
+  ansible.builtin.include_tasks: tasks/03_rules.yaml
+
+- name: Create Users and Service Accounts
+  ansible.builtin.include_tasks: tasks/04_users.yaml
+
+###########################
+##   Export & Reporting  ##
+###########################
+
+- name: Send Email Notifications to Humans ONLY
+  community.general.mail:
+    host: "localhost"
+    port: "25"
+    sender: "{{ __mail_from }}"
+    to: "{{ item.email }}"
+    subject: "[LAF] New Red Hat IdM Provisioned - Temp Creds for {{ item.user }}"
+    subtype: html
+    charset: utf8
+    body: "{{ lookup('template', 'credential_mail.html.j2') }}"
+  loop: "{{ human_credentials }}"
+  loop_control:
+    label: "{{ item.user }}"
+  delegate_to: localhost
+  become: false
+  when: send_creds_via_mail | default(false) | bool
+
+- name: Define report_path
+  ansible.builtin.set_fact:
+    report_path: "{{ (role_path + '/../../export') | realpath }}"
+  run_once: true
+
+- name: Encrypt password for svc-laf-ipa (for all_ipa.yaml)
+  ansible.builtin.shell:
+    cmd: "echo -n '{{ item.password }}' | ansible-vault encrypt_string --encrypt-vault-id ipa"
+  loop: "{{ svc_credentials }}"
+  loop_control:
+    label: "{{ item.user }}"
+  when: item.user == 'svc-laf-ipa'
+  register: vault_encryption_results
+  no_log: true
+  delegate_to: localhost
+
+- name: Construct the Consolidated Report
+  ansible.builtin.set_fact:
+    vault_report_content: |
+      # IDM Provisioning Report - {{ ansible_date_time.iso8601 }}
+      # Domain: {{ ipaserver_domain | default('ipa.deep.eu') }}
+
+      ----------------------
+      # Global IPA Credentials (Save on PMP)
+      admin: {{ ipaadmin_password }} # IPA Admin 
+      dm_password: {{ ipadm_password }} # Directory Manager
+
+      {% for cred in svc_credentials %}
+      ----------------------
+      {% if cred.user == 'svc-laf-ipa' %}
+      # Please save this account on PMP
+      username: {{ cred.user }}
+      password: {{ cred.password }}
+      
+      # Also add this config to this file "LAF/roles/common/vars/all_ipa.yaml"
+      # This vars file is used by the redhat_idm role (reporting and manage)
+      # Keep this 2 spaces indentation
+        {{ client_id }}_prd:
+          default_homedir: "{{ default_homedir | default('/home') }}"
+          default_shell: "{{ default_shell | default('/bin/bash') }}"
+          domain: {{ ipaserver_domain }}
+          servers:
+      {% for server in (groups['ipaserver'] | default([]) + groups['ipareplicas'] | default([])) %}
+            - {{ server }}
+      {% endfor %}
+          username: {{ cred.user }}
+      {% set v_res = vault_encryption_results.results | selectattr('item.user', 'equalto', 'svc-laf-ipa') | first %}
+          password: {{ v_res.stdout | indent(4) }}
+
+      {% elif cred.user == 'ipa-enrollment' %}
+      # Please save this account on PMP
+      # And add it in to the satellite location settings for IPA enrollment
+      username: {{ cred.user }}
+      password: {{ cred.password }}
+
+      {% else %}
+      # Standard Service Account (PMP Only)
+      username: {{ cred.user }}
+      password: {{ cred.password }}
+      {% endif %}
+      {% endfor %}
+  run_once: true
+
+- name: Ensure export directory exists
+  ansible.builtin.file:
+    path: "{{ report_path }}"
+    state: directory
+    mode: '0755'
+  run_once: true
+  delegate_to: localhost
+
+- name: Save the Vault Report
+  ansible.builtin.copy:
+    content: "{{ vault_report_content }}"
+    dest: "{{ report_path }}/redhat_idm_prov_{{ '%Y%m%d_%H%M' | strftime }}.txt"
+    mode: 0600
+  run_once: true
+  delegate_to: localhost
+
+- name: Stop
+  ansible.builtin.meta: end_host

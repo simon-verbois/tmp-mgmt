@@ -1,0 +1,46 @@
+# roles/azure_arc/tasks/installation/vcenter/01_get_disk_info.yaml
+
+---
+- name: "VCENTER | Search and gather disk info on {{ current_vcenter.value.url }}"
+  delegate_to: localhost
+  become: false
+  when: not vcenter_action_done
+  block:
+    - name: "VCENTER | Search for VM {{ inventory_hostname_short | lower }}"
+      community.vmware.vmware_vm_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        vm_name: "{{ inventory_hostname_short | lower }}"
+      register: __azurearc_vm_search
+
+    - name: "VCENTER | Fail if VM not found (triggers rescue)"
+      ansible.builtin.fail:
+        msg: "VM_NOT_FOUND"
+      when: __azurearc_vm_search.virtual_machines | length == 0
+
+    - name: "VCENTER | Set VM details"
+      ansible.builtin.set_fact:
+        __azurearc_vm_details: "{{ __azurearc_vm_search.virtual_machines[0] }}"
+
+    - name: "VCENTER | Gather disk information"
+      community.vmware.vmware_guest_disk_info:
+        hostname: "{{ current_vcenter.value.url }}"
+        username: "{{ current_vcenter.value.username }}"
+        password: "{{ current_vcenter.value.password }}"
+        validate_certs: false
+        datacenter: "{{ __azurearc_vm_details.datacenter }}"
+        uuid: "{{ __azurearc_vm_details.uuid }}"
+      register: __azurearc_vm_disk_info_raw
+
+    - name: "VCENTER | Store disk dictionary and active vCenter"
+      ansible.builtin.set_fact:
+        vm_disks_dict: "{{ __azurearc_vm_disk_info_raw.guest_disk_info }}"
+        __azurearc_active_vcenter: "{{ current_vcenter }}"
+        vcenter_action_done: true
+
+  rescue:
+    - name: "VCENTER | VM not found on {{ current_vcenter.value.url }}, trying next..."
+      ansible.builtin.debug:
+        msg: "VM {{ inventory_hostname_short | lower }} not found on {{ current_vcenter.value.url }}."

@@ -1,0 +1,55 @@
+# roles/tools/tasks/rpm_db_fix/main.yaml
+
+---
+- name: RPM Database Maintenance and Storage Management
+  block:
+    - name: Auto-detect VG and LV for /var/lib/rpm
+      ansible.builtin.shell: |
+        eval $(lvs --noheadings -o vg_name,lv_name --nameprefixes $(findmnt -n -o SOURCE --target /var/lib/rpm))
+        echo "{\"vg\": \"$LVM2_VG_NAME\", \"lv\": \"$LVM2_LV_NAME\"}"
+      register: lvm_fact
+      changed_when: false
+
+    - name: Set dynamic facts
+      ansible.builtin.set_fact:
+        target_vg: "{{ (lvm_fact.stdout | from_json).vg }}"
+        target_lv: "{{ (lvm_fact.stdout | from_json).lv }}"
+
+    - name: Check /var/lib/rpm disk usage
+      ansible.builtin.set_fact:
+        mount_info: "{{ ansible_mounts | selectattr('mount', 'equalto', item.mount) | first }}"
+      loop: "{{ ansible_mounts }}"
+      when: item.mount in ['/var/lib/rpm', '/var', '/']
+      register: mount_check
+
+    - name: Extend Logical Volume if FS free space is < 5%
+      community.general.lvol:
+        vg: "{{ target_vg }}"
+        lv: "{{ target_lv }}"
+        size: +1G
+        resizefs: true
+      when: 
+        - mount_check.results | select('defined') | last | attr('ansible_facts') is defined
+        - (mount_check.results | select('defined') | last).ansible_facts.mount_info.size_available < ((mount_check.results | select('defined') | last).ansible_facts.mount_info.size_total * 0.05)
+
+    - name: Repair RPM Database (force remove locks first)
+      ansible.builtin.shell: |
+        rm -f /var/lib/rpm/__db*
+        rpm --rebuilddb
+      args:
+        removes: /var/lib/rpm/__db.001
+      ignore_errors: yes 
+
+    - name: Clean package manager cache
+      ansible.builtin.command: "{{ (ansible_distribution_major_version | int == 7) | ternary('yum', 'dnf') }} clean all"
+
+    - name: Rebuild package manager cache
+      ansible.builtin.command: "{{ (ansible_distribution_major_version | int == 7) | ternary('yum', 'dnf') }} makecache"
+
+    - name: Reset failed systemd units
+      ansible.builtin.command: systemctl reset-failed
+
+  rescue:
+    - name: Error handling
+      fail:
+        msg: "Maintenance failed on {{ inventory_hostname }}. Verify LVM state and RPM locks manually."

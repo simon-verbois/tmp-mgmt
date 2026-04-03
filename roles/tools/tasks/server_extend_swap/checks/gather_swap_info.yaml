@@ -1,0 +1,104 @@
+# roles/tools/tasks/server_extend_swap/checks/gather_swap_info.yaml
+
+---
+- name: "GATHER | Collect swap, LVM topology, and memory info"
+  vars:
+    _swap_device_override: "{{ swap_device | default('') }}"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+
+      # 1. Detect swap device (override or auto-detect)
+      if [ -n "{{ _swap_device_override }}" ]; then
+        SWAP_DEV="{{ _swap_device_override }}"
+      else
+        SWAP_DEV=$(swapon --show=NAME --noheadings | head -1 | tr -d ' ')
+      fi
+
+      if [ -z "$SWAP_DEV" ]; then
+        echo '{"error": "No active swap device found."}'
+        exit 1
+      fi
+
+      # 1b. Resolve /dev/dm-X to /dev/mapper/ path for LVM compatibility
+      if echo "$SWAP_DEV" | grep -q '/dev/dm-'; then
+        DM_NAME=$(dmsetup info -c --noheadings -o name "$SWAP_DEV" 2>/dev/null | tr -d ' ')
+        if [ -n "$DM_NAME" ]; then
+          SWAP_DEV="/dev/mapper/$DM_NAME"
+        fi
+      fi
+
+      # 2. Verify it is LVM managed
+      LV_NAME=$(lvs --noheadings -o lv_name "$SWAP_DEV" 2>/dev/null | tr -d ' ' || true)
+      VG_NAME=$(lvs --noheadings -o vg_name "$SWAP_DEV" 2>/dev/null | tr -d ' ' || true)
+
+      if [ -z "$VG_NAME" ]; then
+        echo '{"error": "Device '"$SWAP_DEV"' is not an LVM volume."}'
+        exit 1
+      fi
+
+      # 3. LVM topology
+      LV_SIZE_BYTES=$(lvs --noheadings -o lv_size --units b --nosuffix "$SWAP_DEV" 2>/dev/null | tr -d ' ')
+      PV_DEV=$(vgs --noheadings -o pv_name "$VG_NAME" 2>/dev/null | awk 'NR==1 {print $1}' | tr -d ' ')
+      VG_FREE_BYTES=$(vgs --noheadings -o vg_free --units b --nosuffix "$VG_NAME" 2>/dev/null | tr -d ' ')
+      VG_SIZE_BYTES=$(vgs --noheadings -o vg_size --units b --nosuffix "$VG_NAME" 2>/dev/null | tr -d ' ')
+
+      BASE_DISK=$(lsblk -ndo pkname "$PV_DEV" 2>/dev/null | tr -d ' ')
+      if [ -z "$BASE_DISK" ]; then
+        BASE_DISK=$(basename "$PV_DEV")
+      fi
+      DISK_SIZE_BYTES=$(lsblk -b -ndo SIZE "/dev/$BASE_DISK" 2>/dev/null | tr -d ' ')
+
+      # 4. Swap usage
+      SWAP_TOTAL_KB=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+      SWAP_FREE_KB=$(grep SwapFree /proc/meminfo | awk '{print $2}')
+      SWAP_USED_KB=$((SWAP_TOTAL_KB - SWAP_FREE_KB))
+
+      # 5. RAM info
+      RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+      RAM_AVAILABLE_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+
+      cat <<EOF
+      {
+        "swap_device": "$SWAP_DEV",
+        "lv_name": "$LV_NAME",
+        "vg_name": "$VG_NAME",
+        "lv_size_bytes": "$LV_SIZE_BYTES",
+        "vg_free_bytes": "$VG_FREE_BYTES",
+        "vg_size_bytes": "$VG_SIZE_BYTES",
+        "pv_device": "$PV_DEV",
+        "base_disk": "$BASE_DISK",
+        "disk_size_bytes": "$DISK_SIZE_BYTES",
+        "swap_total_kb": "$SWAP_TOTAL_KB",
+        "swap_used_kb": "$SWAP_USED_KB",
+        "ram_total_kb": "$RAM_TOTAL_KB",
+        "ram_available_kb": "$RAM_AVAILABLE_KB"
+      }
+      EOF
+  become: true
+  register: swap_info_raw
+  changed_when: false
+
+- name: "GATHER | Parse swap info"
+  ansible.builtin.set_fact:
+    swap_info: "{{ swap_info_raw.stdout | from_json }}"
+
+- name: "GATHER | Fail if discovery returned an error"
+  ansible.builtin.fail:
+    msg: "{{ swap_info.error }}"
+  when: swap_info.error is defined
+
+- name: "GATHER | Check swapoff safety"
+  vars:
+    _safety_pct: "{{ swapoff_ram_safety_pct | default(20) | float }}"
+    _swap_used_gb: "{{ (swap_info.swap_used_kb | float / 1048576) | round(2) }}"
+    _ram_available_gb: "{{ (swap_info.ram_available_kb | float / 1048576) | round(2) }}"
+    _ram_required_gb: "{{ (_swap_used_gb | float * (1 + _safety_pct | float / 100)) | round(2) }}"
+  ansible.builtin.set_fact:
+    swapoff_safe: "{{ _ram_available_gb | float >= _ram_required_gb | float }}"
+    swapoff_error: "{{ omit if (_ram_available_gb | float >= _ram_required_gb | float) else 'Not enough RAM for safe swapoff' }}"
+    swapoff_detail:
+      swap_used_gb: "{{ _swap_used_gb }}"
+      ram_available_gb: "{{ _ram_available_gb }}"
+      ram_required_gb: "{{ _ram_required_gb }}"
+      safety_pct: "{{ _safety_pct }}"

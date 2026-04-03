@@ -1,0 +1,148 @@
+# roles/azure_arc/tasks/installation/host/install.yaml
+
+---
+- name: "ASSERT | Validate required Azure Arc variables"
+  ansible.builtin.assert:
+    that:
+      - __azurearc_subscription_id | default('') | length > 0
+      - __azurearc_resource_group | default('') | length > 0
+      - __azurearc_tenant_id | default('') | length > 0
+      - __azurearc_location | default('') | length > 0
+      - __azurearc_cloud | default('') | length > 0
+      - __azurearc_correlation_id | default('') | length > 0
+      - __azurearc_sp_id | default('') | length > 0
+      - __azurearc_sp_secret | default('') | length > 0
+    fail_msg: >
+      Missing required variables:
+      __azurearc_subscription_id={{ __azurearc_subscription_id | default('MISSING') }},
+      __azurearc_resource_group={{ __azurearc_resource_group | default('MISSING') }},
+      __azurearc_tenant_id={{ __azurearc_tenant_id | default('MISSING') }},
+      __azurearc_location={{ __azurearc_location | default('MISSING') }},
+      __azurearc_cloud={{ __azurearc_cloud | default('MISSING') }},
+      __azurearc_correlation_id={{ __azurearc_correlation_id | default('MISSING') }},
+      __azurearc_sp_id={{ 'MISSING' if __azurearc_sp_id | default('') | length == 0 else '****' + __azurearc_sp_id[-4:] }},
+      __azurearc_sp_secret={{ 'MISSING' if __azurearc_sp_secret | default('') | length == 0 else '********' }}
+    success_msg: "All required Azure Arc variables are defined."
+
+- name: "INSTALL | Deploy Azure Arc repository"
+  ansible.builtin.template:
+    src: "azurearc.repo.j2"
+    dest: "/etc/yum.repos.d/azurearc.repo"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- block:
+    - name: "INSTALL | Install requirements (RHEL 8+)"
+      ansible.builtin.dnf:
+        name: "{{ __azurearc_requirements_list }}"
+        state: present
+        update_cache: true
+
+    - name: "INSTALL | Install packages (RHEL 8+)"
+      ansible.builtin.dnf:
+        name: "{{ __azurearc_packages_list }}"
+        disable_gpg_check: true
+        state: latest
+        update_cache: true
+  become: true
+  when: ansible_facts['distribution_major_version'] | int >= 8
+
+- block:
+    - name: "INSTALL | Install requirements (RHEL 7)"
+      ansible.builtin.yum:
+        name: "{{ __azurearc_requirements_list }}"
+        state: present
+        update_cache: true
+
+    - name: "INSTALL | Install packages (RHEL 7)"
+      ansible.builtin.yum:
+        name: "{{ __azurearc_packages_list }}"
+        state: latest
+        disable_gpg_check: true
+        update_cache: true
+  become: true
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: "INSTALL | Deploy proxy CA extraction script"
+  ansible.builtin.copy:
+    src: get-proxy-ca.py
+    dest: /tmp/get-proxy-ca.py
+    mode: "0700"
+  become: true
+  when: __azurearc_proxy_url | default('') | length > 0
+
+- name: "INSTALL | Extract proxy CA certificate"
+  ansible.builtin.command: >
+    python3 /tmp/get-proxy-ca.py
+    {{ __azurearc_proxy_url | urlsplit('hostname') }}
+    {{ __azurearc_proxy_url | urlsplit('port') }}
+    management.azure.com
+    443
+    /tmp/proxy-ca.pem
+  changed_when: true
+  become: true
+  when: __azurearc_proxy_url | default('') | length > 0
+
+- name: "INSTALL | Cleanup proxy CA extraction script"
+  ansible.builtin.file:
+    path: /tmp/get-proxy-ca.py
+    state: absent
+  become: true
+  when: __azurearc_proxy_url | default('') | length > 0
+
+- name: "INSTALL | Install proxy CA certificate"
+  when: __azurearc_proxy_url | default('') | length > 0
+  block:
+    - name: "INSTALL | Write proxy CA to trust anchors"
+      ansible.builtin.copy:
+        src: /tmp/proxy-ca.pem
+        dest: /etc/pki/ca-trust/source/anchors/proxy-ca.pem
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+
+    - name: "INSTALL | Update CA trust store"
+      ansible.builtin.command: update-ca-trust extract
+      changed_when: true
+      become: true
+
+- name: "INSTALL | Check Azure Arc connection status"
+  ansible.builtin.command: azcmagent show
+  register: __azurearc_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: "INSTALL | Configure proxy in azcmagent"
+  ansible.builtin.command: azcmagent config set proxy.url "{{ __azurearc_proxy_url }}"
+  become: true
+  when:
+    - __azurearc_proxy_url | default('') | length > 0
+    - "'Connected' not in __azurearc_status.stdout"
+
+- name: "INSTALL | Connect server to Azure Arc"
+  ansible.builtin.command: >
+    azcmagent connect
+    --service-principal-id "{{ __azurearc_sp_id }}"
+    --service-principal-secret "{{ __azurearc_sp_secret }}"
+    --resource-group "{{ __azurearc_resource_group }}"
+    --tenant-id "{{ __azurearc_tenant_id }}"
+    --location "{{ __azurearc_location }}"
+    --subscription-id "{{ __azurearc_subscription_id }}"
+    --cloud "{{ __azurearc_cloud }}"
+    --correlation-id "{{ __azurearc_correlation_id }}"
+    --tags "{{ __azurearc_tags }}"
+  become: true
+  when: "'Connected' not in __azurearc_status.stdout"
+  no_log: false
+
+- name: "INSTALL | Ensure HIMDS service is started and enabled"
+  ansible.builtin.service:
+    name: himdsd
+    state: started
+    enabled: true
+  become: true

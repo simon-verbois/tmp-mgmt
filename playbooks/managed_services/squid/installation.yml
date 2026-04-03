@@ -1,0 +1,15 @@
+---
+- name: Playbook for Squid installation
+  hosts: all
+  gather_facts: true
+  serial: 1
+
+# Usage
+# ansible-playbook playbooks/managed_services/squid/installation.yml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    SQUID_INSTALLATION: true
+    
+  roles:
+    - common
+    - squid

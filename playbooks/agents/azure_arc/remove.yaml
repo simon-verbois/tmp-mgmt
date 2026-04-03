@@ -1,0 +1,14 @@
+---
+- name: Playbook to remove Azure Arc agent
+  hosts: azure_arc
+  become: true
+
+# Usage
+# ansible-playbook playbooks/agents/azure_arc/remove.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    REMOVE_AZURE_ARC_AGENT: true
+
+  roles:
+    - common
+    - azure_arc

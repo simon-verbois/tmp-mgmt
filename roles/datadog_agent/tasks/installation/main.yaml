@@ -1,0 +1,27 @@
+# roles/datadog_agent/tasks/installation/main.yaml
+
+---
+- name: Create Datadog repository file
+  become: true
+  ansible.builtin.template:
+    src: "datadog.repo.j2"
+    dest: "/etc/yum.repos.d/{{ __datadog_repo_name }}.repo"
+    mode: "0644"
+    owner: "root"
+    group: "root"
+  
+- name: "Install {{ __datadog_package }}"
+  become: true
+  ansible.builtin.dnf:
+    name: "{{ __datadog_package }}"
+    state: present
+    update_cache: true
+    disable_gpg_check: true
+
+- name: Enable and start Datadog Agent service
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ __datadog_service }}"
+    enabled: true
+    state: started
+  

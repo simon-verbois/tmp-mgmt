@@ -1,0 +1,19 @@
+# roles/redhat_tomcat/defaults/main.yaml
+
+---
+__tomcat_installation: false
+__tomcat_remove: false
+__tomcat_configure: false
+
+__java_version: "1.8.0"
+__java_package: "java-{{ __java_version }}-openjdk-devel"
+
+# Tomcat variables
+__tomcat_version: "9.0.87"
+__tomcat_package: "tomcat-{{ __tomcat_version }}"
+
+# Variables for a custom configuration
+__tomcat_service: "tomcat_pfin.service"
+__tomcat_user: "quarted_pfin"
+__tomcat_group: "quarted_pfin"
+__tomcat_root_dir: /opt/tomcat_pfin

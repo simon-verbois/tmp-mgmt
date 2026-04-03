@@ -1,0 +1,53 @@
+# roles/squid/tasks/push_config/00_main.yaml
+
+---
+- ansible.builtin.include_tasks: ../utils/create_working_dir.yaml
+- ansible.builtin.include_tasks: ../utils/clone_git_project.yaml
+
+- name: Deploy Squid configuration
+  block:
+  - name: List Squid config files ({{ scope }}) # Scope is define in the inventory vars
+    delegate_to: tower.csv.local
+    run_once: true
+    ansible.builtin.find:
+      paths: "{{ working_dir }}/{{ client_id }}/templates/squid/{{ scope }}/"
+      patterns: "*.j2"
+    register: squid_config_files
+
+  - name: Copy Squid configuration files from templates
+    become: true
+    ansible.builtin.template:
+      src: "{{ item.path }}"
+      dest: "/etc/squid/{{ item.path | basename | regex_replace('\\.j2$', '') }}"
+      owner: "root"
+      group: "squid"
+      mode: "0640"
+      backup: yes 
+    loop: "{{ squid_config_files.files }}"
+
+  - name: Check Squid configuration syntax
+    become: true
+    ansible.builtin.command: /usr/sbin/squid -k check
+    register: squid_config_check
+    changed_when: false
+
+  - name: Reload Squid service
+    become: true
+    ansible.builtin.service:
+      name: squid
+      state: reloaded
+
+  rescue:
+  - name: Display result
+    ansible.builtin.debug:
+      msg:
+        - "ERROR: The Squid configuration is invalid. The service was NOT reloaded."
+        - "STDOUT: {{ squid_config_check.stdout_lines | default('N/A') }}"
+        - "STDERR: {{ squid_config_check.stderr_lines | default('N/A') }}"
+
+  - name: Fail if config deployment goes wrong
+    ansible.builtin.fail:
+      msg: "The Squid configuration is invalid. Please check the logs above."
+
+  always:
+  - ansible.builtin.include_tasks: ../utils/clean_working_dir.yaml

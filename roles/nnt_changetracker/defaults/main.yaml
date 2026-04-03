@@ -1,0 +1,29 @@
+# roles/setup_nnt/defaults/main.yaml
+
+---
+# Repository
+__nnt_repo_url: "http://yumrepos.csv.local/repos/lin/nnt/nnt/"
+__nnt_repo_gpgkey: "http://yumrepos.csv.local/repos/lin/nnt/nnt/RPM-GPG-KEY-nnt"
+__nnt_package: "nnt-changetracker-gen7agentcore"
+
+# Service
+__nnt_service: "nntgen7agentcore"
+
+# NNT Settings
+__nnt_agent_cfgscript: "/opt/nnt/gen7agentcore/configure-gen7agentcore.sh"
+__nnt_agent_path: "/opt/nnt/gen7agentcore/"
+__nnt_agent_prefix: ""
+__nnt_agent_suffix: ""
+__nnt_agent_thumbprint: "122717058FDD1DCA6A73E4C4D5F4A75B98A9FF4B"
+__nnt_hubdetails_loc: "/var/nnt/gen7agent.app.netcore"
+__nnt_hub_host: "https://nnt.csv.local:4343/api"
+
+# NNT Authentification
+__nnt_agent_user: "agent"
+__nnt_agent_pwd: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;nnt
+          37366538346638653432623465343933653164373839353236386238333563356134396366366461
+          3733396134356462383263313430333763323165663031300a343331633930373835353734653666
+          36306164346531336365646630306438356563643937633237333736373439336663613035636466
+          6265356462383336350a346365353666646432363364633833383137643066653138333234336339
+          3634

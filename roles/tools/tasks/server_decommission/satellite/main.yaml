@@ -1,0 +1,87 @@
+# roles/tools/tasks/server_decommission/satellite/main.yaml
+
+---
+- name: "SATELLITE | Add Satellite header in result mail"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.5em;">Satellite</b>
+      </div>
+
+- name: "SATELLITE | Manage host {{ inventory_hostname_short | lower }} in Satellite"
+  delegate_to: tower.csv.local
+  vars:
+    satellite_base_url: "{{ __satellite_https_url | regex_replace('/$', '') }}"
+  block:
+    - name: "SATELLITE | Get {{ inventory_hostname | lower }} ID from Satellite"
+      ansible.builtin.uri:
+        url: "{{ satellite_base_url }}/api/v2/hosts/{{ inventory_hostname | lower }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: yes
+        status_code: [200, 404]
+      register: satellite_host_info
+
+    - name: "SATELLITE | Delete {{ inventory_hostname_short | lower }} from Satellite"
+      ansible.builtin.uri:
+        url: "{{ satellite_base_url }}/api/v2/hosts/{{ satellite_host_info.json.id }}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: yes
+      when: satellite_host_info.status == 200
+      register: satellite_deletion_result
+
+    - name: "SATELLITE | Set status message for mail report"
+      ansible.builtin.set_fact:
+        satellite_status_msg: |-
+          {% if satellite_host_info.status == 404 %}
+          • Host {{ inventory_hostname_short | lower }} not found on Satellite.<br>
+          {% else %}
+          • <b>Host {{ inventory_hostname_short | lower }} successfully deleted from Satellite.</b><br>
+          {% endif %}
+
+  rescue:
+    - name: "SATELLITE | Set failure message for mail report"
+      ansible.builtin.set_fact:
+        satellite_status_msg: "⚠️ <b>ERROR: Satellite operation failed:</b> {{ ansible_failed_result.msg | default('unknown error') }}<br>"
+
+  always:
+    - name: "SATELLITE | Get all hosts for location '{{ client_id }}' from Satellite"
+      ansible.builtin.uri:
+        url: "{{ satellite_base_url }}/api/v2/hosts?search=location={{ client_id }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: yes
+        status_code: [200, 404]
+      register: satellite_location_hosts
+
+    - name: "SATELLITE | Extract list of hosts in the location"
+      ansible.builtin.set_fact:
+        location_hosts_list: "{{ satellite_location_hosts | json_query('json.results[*].name') | default([]) }}"
+
+    - name: "SATELLITE | Compose final Satellite mail content"
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          {{ satellite_status_msg | default('Status for ' + inventory_hostname_short | lower + ' could not be determined.<br>') }}
+          {% if location_hosts_list | length == 0 %}
+          <br>
+          <b>The location {{ client_id }} is empty on Satellite.<br>
+          Please verify if the entire client is decommissioned and consider deleting the location from Satellite's web UI.</b>
+          {% endif %}

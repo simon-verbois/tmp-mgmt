@@ -1,0 +1,82 @@
+# roles/tools/tasks/server_add_cpu/dry_run.yaml
+
+---
+- name: "DRY-RUN | Determine feasibility"
+  ansible.builtin.set_fact:
+    dry_run_ready: "{{ cpu_validation_error is not defined }}"
+    dry_run_block_reason: "{{ cpu_validation_error | default('') }}"
+
+- name: "DRY-RUN | Generate authorization token"
+  ansible.builtin.set_fact:
+    security_token: "{{ lookup('password', '/dev/null chars=ascii_uppercase,digits length=6') }}"
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Save token payload on target server"
+  ansible.builtin.copy:
+    content: "{{ {'token': security_token, 'requested_cpu_count': requested_cpu_count | string} | to_json }}"
+    dest: "/tmp/cpu_extension_token.json"
+    mode: '0600'
+  become: true
+  when: dry_run_ready | bool
+
+- name: "DRY-RUN | Build feasibility report"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _vc: "{{ vcenter_cpu_info | default({}) }}"
+    _cv: "{{ cpu_validation | default({}) }}"
+    _has_vc: "{{ vcenter_cpu_info is defined }}"
+    _delta: "{{ requested_cpu_count | int - (_vc.num_cpus | default(0) | int) }}"
+  ansible.builtin.set_fact:
+    dry_run_report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║              CPU EXTENSION - FEASIBILITY REPORT              ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {% if _has_vc | bool %}
+      {{ "║  %-60s║" | format("Current:          " ~ _vc.num_cpus ~ " vCPUs") }}
+      {{ "║  %-60s║" | format("Requested:        " ~ requested_cpu_count ~ " vCPUs (+" ~ _delta ~ ")") }}
+      {% else %}
+      {{ "║  %-60s║" | format("Requested:        " ~ requested_cpu_count ~ " vCPUs") }}
+      {% endif %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("OS") }}
+      {{ "║  %-60s║" | format("CPUs Online:      " ~ os_cpu_info.cpu_online) }}
+      {{ "║  %-60s║" | format("Architecture:     " ~ os_cpu_info.arch) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("VCENTER") }}
+      {% if _has_vc | bool %}
+      {{ "║  %-60s║" | format("VM:               " ~ _vc.vm_name) }}
+      {{ "║  %-60s║" | format("vCPUs:            " ~ _vc.num_cpus) }}
+      {{ "║  %-60s║" | format("Cores/Socket:     " ~ _vc.cores_per_socket) }}
+      {{ "║  %-60s║" | format("Hot Add:          " ~ (_vc.hot_add_enabled | bool | ternary('ENABLED', 'DISABLED'))) }}
+      {{ "║  %-60s║" | format("HW Version:       " ~ _vc.hw_version ~ " (max: " ~ _vc.hw_max_cpus ~ " vCPUs)") }}
+      {{ "║  %-60s║" | format("OS/vCenter Match: " ~ (_cv.os_vcenter_match | default(false) | bool | ternary('YES', 'NO'))) }}
+      {% else %}
+      {{ "║  %-60s║" | format("Status:           VM not found on any vCenter") }}
+      {% endif %}
+      {% if _has_vc | bool %}
+      {{ _border }}
+      {{ "║ %-61s║" | format("VALIDATION") }}
+      {{ "║  %-60s║" | format("Hot Add:          " ~ (_cv.hot_add | default(false) | bool | ternary('YES', 'NO'))) }}
+      {{ "║  %-60s║" | format("Increase:         " ~ (_cv.increase | default(false) | bool | ternary('YES (' ~ _vc.num_cpus ~ ' -> ' ~ requested_cpu_count ~ ')', 'NO'))) }}
+      {{ "║  %-60s║" | format("Socket Alignment: " ~ (_cv.socket_aligned | default(false) | bool | ternary('YES (' ~ requested_cpu_count ~ ' / ' ~ _vc.cores_per_socket ~ ' = ' ~ (requested_cpu_count | int / _vc.cores_per_socket | int) | int | string ~ ' sockets)', 'NO'))) }}
+      {{ "║  %-60s║" | format("HW Limit:         " ~ (_cv.hw_limit_ok | default(false) | bool | ternary('YES (' ~ requested_cpu_count ~ ' <= ' ~ _vc.hw_max_cpus ~ ')', 'NO'))) }}
+      {% endif %}
+      {{ _border }}
+      {% if dry_run_ready | bool %}
+      {{ "║ %-61s║" | format("VERDICT:          READY TO EXECUTE") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("TOKEN:            " ~ security_token) }}
+      {% else %}
+      {{ "║ %-61s║" | format("VERDICT:          BLOCKED") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("REASON:           " ~ dry_run_block_reason) }}
+      {% endif %}
+      ╚══════════════════════════════════════════════════════════════╝
+
+- name: "DRY-RUN | Display feasibility report"
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ dry_run_report }}"
+
+- name: "DRY-RUN | Stop execution"
+  ansible.builtin.meta: end_play

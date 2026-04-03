@@ -1,0 +1,44 @@
+# roles/tools/tasks/server_decommission/gitlab/search_project.yaml
+
+---
+- name: "GITLAB | Initialize GitLab search variables"
+  ansible.builtin.set_fact:
+    gitlab_files_list: []
+    gitlab_api_error: ""
+
+- name: "GITLAB | Find host occurrences in GitLab project {{ project.key }}"
+  block:
+    - name: "GITLAB | Search for '{{ inventory_hostname_short | lower }}' in GitLab project"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "https://{{ __gitlab_fqdn }}/api/v4/projects/{{ project.value.id }}/search?scope=blobs&search={{ inventory_hostname_short | lower }}"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ {'ict': __gitlab_ict_token, 'ict-las': __gitlab_ictlas_token}[project.value.group] }}"
+      register: search_gitlab_occurrence
+
+    - name: "GITLAB | Create a list of found file paths"
+      ansible.builtin.set_fact:
+        gitlab_files_list: "{{ search_gitlab_occurrence.json | map(attribute='path') | unique | list }}"
+
+  rescue:
+    - name: "GITLAB | Set error message on GitLab API failure"
+      ansible.builtin.set_fact:
+        gitlab_api_error: "GitLab API call failed. Status: {{ ansible_failed_result.status | default('N/A') }}. Response: {{ ansible_failed_result.json | default(ansible_failed_result.msg) }}"
+
+  always:
+    - name: "GITLAB | Fill mail content with GitLab results"
+      ansible.builtin.set_fact:
+        mail_content: |
+          {{ mail_content | default('') }}
+          {% set filtered_files = gitlab_files_list | reject('search', 'hosts\\.ini$') | list %}
+          {% if gitlab_api_error %}
+          ⚠️ <b>ERROR: During research on this GitLab project {{ project.key }}:</b> {{ gitlab_api_error }}<br>
+          {% elif filtered_files | length > 0 %}
+          • <b>Occurrences of {{ inventory_hostname_short | lower }} found in GitLab project {{ project.key }}:</b><br>
+          {% for file in filtered_files %}
+          &nbsp&nbsp- <a href="{{ project.value.url }}/{{ file }}">{{ project.value.url }}/{{ file }}</a><br>
+          {% endfor %}
+          {% else %}
+          • No occurrences of {{ inventory_hostname_short | lower }} were found in GitLab project {{ project.key }}.<br>
+          {% endif %}

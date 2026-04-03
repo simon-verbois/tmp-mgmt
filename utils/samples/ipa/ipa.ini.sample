@@ -1,0 +1,9 @@
+[ipaserver]
+master_fqdn ansible_host=x.x.x.x
+
+[ipareplicas]
+replica1_fqdn ansible_host=x.x.x.x
+
+[ipacluster:children]
+ipaserver
+ipareplicas

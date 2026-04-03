@@ -1,0 +1,7 @@
+# roles/elastic_agent/tasks/utils/install_rsync.yaml
+
+---
+- name: "Ensure rsync is installed on the servers"
+  ansible.builtin.package:
+    name: rsync
+    state: present

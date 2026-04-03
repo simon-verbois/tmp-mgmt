@@ -1,0 +1,26 @@
+# roles/tools/tasks/server_manual_patching/centreon/02_set_downtime.yaml
+
+---
+- name: "CENTREON | Prepare downtime window (1 hour)"
+  ansible.builtin.set_fact:
+    downtime_start: "{{ ansible_date_time.iso8601 }}"
+    downtime_end: "{{ lookup('pipe', 'date -u -d \"+1 hour\" +%Y-%m-%dT%H:%M:%SZ') }}"
+
+- name: "CENTREON | Set downtime for host and services"
+  ansible.builtin.uri:
+    url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/hosts/{{ centreon_host_id }}/downtimes"
+    method: POST
+    headers:
+      X-AUTH-TOKEN: "{{ __centreon_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      start_time: "{{ downtime_start }}"
+      end_time: "{{ downtime_end }}"
+      duration: 3600
+      is_fixed: true
+      with_services: true
+      comment: "1 hour downtime by svc-laf-centreon (manual patching)"
+    status_code: [200, 201, 204]
+  delegate_to: localhost
+  become: false

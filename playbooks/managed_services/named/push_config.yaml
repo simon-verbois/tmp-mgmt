@@ -1,0 +1,22 @@
+---
+- name: Gather facts for all hosts (serial block gather facts on main run)
+  hosts: all
+  become: true
+  gather_facts: true
+
+- name: Playbook for named (dns) management
+  hosts: all
+  become: true
+  serial: 1
+  order: reverse_inventory
+
+# Usage
+# ansible-playbook playbooks/managed_services/named/push_config.yaml -i clients/2000/dns.ini -l internal
+# ansible-playbook playbooks/managed_services/named/push_config.yaml -i clients/2000/dns.ini -l public
+
+  vars:
+    PUSH_CONFIG: true
+
+  roles:
+    - common
+    - named

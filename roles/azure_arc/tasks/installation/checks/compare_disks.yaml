@@ -1,0 +1,60 @@
+# roles/azure_arc/tasks/installation/checks/compare_disks.yaml
+
+---
+- name: "CHECKS | Get PV and base disk info for {{ __azurearc_vg_name }}"
+  ansible.builtin.shell: |
+    set -e
+    VG_NAME="{{ __azurearc_vg_name }}"
+    PV_DEV=$(vgs --noheadings -o pv_name "$VG_NAME" 2>/dev/null | awk 'NR==1 {print $1}' | tr -d ' ')
+    BASE_DISK=$(lsblk -ndo pkname "$PV_DEV" 2>/dev/null | tr -d ' ')
+    if [ -z "$BASE_DISK" ]; then
+      BASE_DISK=$(basename "$PV_DEV")
+    fi
+    DISK_SIZE_BYTES=$(lsblk -b -ndo SIZE "/dev/$BASE_DISK" 2>/dev/null | tr -d ' ')
+    cat <<EOF
+    {
+      "vg_name": "$VG_NAME",
+      "pv_device": "$PV_DEV",
+      "base_disk": "$BASE_DISK",
+      "disk_size_bytes": "$DISK_SIZE_BYTES"
+    }
+    EOF
+  register: __azurearc_os_disk_raw
+  changed_when: false
+
+- name: "CHECKS | Parse disk info"
+  ansible.builtin.set_fact:
+    __azurearc_os_disk_info: "{{ __azurearc_os_disk_raw.stdout | from_json }}"
+
+- name: "CHECKS | Debug OS disk information"
+  ansible.builtin.debug:
+    msg:
+      - "VG: {{ __azurearc_os_disk_info.vg_name }}"
+      - "PV: {{ __azurearc_os_disk_info.pv_device }}"
+      - "Base Disk: /dev/{{ __azurearc_os_disk_info.base_disk }}"
+      - "Size (bytes): {{ __azurearc_os_disk_info.disk_size_bytes }}"
+
+- name: "CHECKS | Find VMware disks matching the OS disk size"
+  ansible.builtin.set_fact:
+    __azurearc_matched_vm_disks: "{{ __azurearc_matched_vm_disks | default([]) + [item] }}"
+  loop: "{{ vm_disks_dict | dict2items }}"
+  when: item.value.capacity_in_bytes | string == __azurearc_os_disk_info.disk_size_bytes | string
+
+- name: "CHECKS | Safety check — exactly one disk must match"
+  ansible.builtin.fail:
+    msg: >-
+      Found {{ __azurearc_matched_vm_disks | default([]) | length }} VMware disks
+      with size {{ __azurearc_os_disk_info.disk_size_bytes }} bytes.
+      Cannot safely identify the target disk to extend.
+  when: __azurearc_matched_vm_disks is not defined or __azurearc_matched_vm_disks | length != 1
+
+- name: "CHECKS | Set target VM disk facts for extension"
+  ansible.builtin.set_fact:
+    __azurearc_target_vm_disk: "{{ __azurearc_matched_vm_disks[0].value }}"
+
+- name: "CHECKS | Debug target disk"
+  ansible.builtin.debug:
+    msg: >-
+      Target disk: '{{ __azurearc_target_vm_disk.label }}'
+      (Unit: {{ __azurearc_target_vm_disk.unit_number }},
+      Controller: {{ __azurearc_target_vm_disk.controller_bus_number }})

@@ -1,0 +1,14 @@
+# roles/tools/tasks/server_pre_decom_start/vcenter/main.yaml
+
+---
+- name: "VCENTER | Reset loop breaker"
+  ansible.builtin.set_fact:
+    vcenter_action_done: false
+
+- name: "VCENTER | Loop on each vCenter"
+  ansible.builtin.include_tasks:
+    file: start_server.yaml
+  loop: "{{ __vcenter_infos | dict2items }}"
+  loop_control:
+    loop_var: current_vcenter
+    label: "Sensitive data is hidden."

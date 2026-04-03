@@ -1,0 +1,22 @@
+# roles/redhat_idm/tasks/manage/users/enabling/00_main.yaml
+
+---
+- name: Define mail_subject var
+  ansible.builtin.set_fact:
+    mail_subject: "[LAF] Enable IPA user"
+    output_zip_file: "ipa_enable_users_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.zip"
+
+- name: Loop on selected IPAs
+  ansible.builtin.include_tasks: loop_on_ipa.yaml
+  loop: "{{ selected_ipa | dict2items }}"
+  loop_control:
+    loop_var: current_ipa
+    label: "{{ current_ipa.key }}"
+  vars:
+    client_id: "{{ current_ipa.key | regex_replace('_.*$', '') }}"
+    ipa_domain: "{{ current_ipa.value.domain }}"
+    ipa_server: "{{ current_ipa.value.servers[0] }}"
+    ipa_user: "{{ current_ipa.value.username }}"
+    ipa_pass: "{{ current_ipa.value.password }}"
+    ipa_default_homedir: "{{ current_ipa.value.default_homedir }}"
+    ipa_default_shell: "{{ current_ipa.value.default_shell }}"

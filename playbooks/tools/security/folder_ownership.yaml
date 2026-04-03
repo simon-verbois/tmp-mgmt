@@ -1,0 +1,67 @@
+---
+- name: Security - Ensure correct folder ownership permissions
+  hosts: all
+  become: true
+  gather_facts: false
+
+# Usage
+# ansible-playbook playbooks/tools/security/folder_ownership.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+# (you will be prompted for path, owner, and group)
+  
+  vars_prompt:
+    - name: path_prompted
+      prompt: |-
+        Full path of the file/folder to change ownership
+      private: no
+
+    - name: owner_prompted
+      prompt: |-
+        Owner
+      private: no
+
+    - name: group_prompted
+      prompt: |-
+        (Leave empty to use the owner as group name too)
+        Group
+      private: no
+
+
+  tasks:
+    - name: Assert that the path is not empty and exists
+      assert:
+        that:
+          - path_prompted is not empty
+      fail_msg: "The provided path is either empty or does not exist."
+      success_msg: "Path is valid and exists."
+
+    - name: Assert that owner is provided
+      assert:
+        that:
+          - owner_prompted is not empty
+      fail_msg: "Owner is required and cannot be empty."
+      success_msg: "Owner is provided."
+
+    - name: Set group to owner if not provided
+      set_fact:
+        group_to_use: "{{ owner_prompted if group_prompted == '' else group_prompted }}"
+
+    - name: Change ownership of {{ path_prompted }}
+      delegate_to: "{{ ansible_fqdn if run_on is not defined or run_on == '' else run_on }}"
+      ignore_errors: true
+      become: true
+      ansible.builtin.file:
+        path: "{{ path_prompted }}"
+        owner: "{{ owner_prompted }}"
+        group: "{{ group_to_use }}"
+        recurse: true
+      register: ownership_change_result
+
+    - name: Check if ownership change was successful
+      debug:
+        msg: "Ownership change for {{ path_prompted }} has been successfully applied to owner: {{ owner_prompted }} and group: {{ group_to_use }}"
+      when: ownership_change_result is success
+
+    - name: Handle errors if ownership change failed
+      debug:
+        msg: "Error occurred while changing ownership: {{ ownership_change_result.msg }}"
+      when: ownership_change_result.failed

@@ -1,0 +1,10 @@
+# roles/named/tasks/utils/clean_working_dir.yaml
+
+---
+- name: Delete {{ working_dir }}
+  delegate_to: tower.csv.local
+  run_once: true
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    state: absent
+    force: true

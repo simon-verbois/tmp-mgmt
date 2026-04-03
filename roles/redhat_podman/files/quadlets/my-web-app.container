@@ -1,0 +1,13 @@
+[Unit]
+Description=My Apache web server container
+After=network-online.target
+
+[Container]
+Image=docker.io/library/httpd:2.4
+PublishPort=8080:80/tcp
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

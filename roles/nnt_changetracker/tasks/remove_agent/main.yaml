@@ -1,0 +1,32 @@
+# roles/setup_nnt/tasks/remove/main.yaml
+
+---
+- name: Uninstall {{ __nnt_package }}
+  ansible.builtin.package:
+    name: "{{ __nnt_package }}"
+    state: absent
+
+- name: Remove remaining NNT agent resources
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/yum.repos.d/nnt.repo"
+    - "/var/nnt/"
+    - "/etc/systemd/system/nntgen7agentcore.service"
+    - "/opt/nnt/"
+
+- name: Reload systemd daemon
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Clean yum cache
+  become: true
+  ansible.builtin.command: yum clean all
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: Clean dnf cache
+  become: true
+  ansible.builtin.command: dnf clean all
+  when: ansible_facts['distribution_major_version'] | int >= 8

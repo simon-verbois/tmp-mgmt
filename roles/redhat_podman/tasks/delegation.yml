@@ -1,0 +1,202 @@
+# roles/redhat_podman/tasks/delegation.yml
+
+---
+- name: Ensure user info is loaded
+  ansible.builtin.include_tasks: common_user_info.yml
+
+- name: Set user UID fact from standardized source
+  ansible.builtin.set_fact:
+    podman_user_uid: "{{ podman_user_fact.uid }}"
+
+- name: Debug delegation configuration
+  ansible.builtin.debug:
+    msg: "Configuring delegation for user {{ podman_service_account_name }} (UID: {{ podman_user_uid }}) on RHEL {{ ansible_distribution_major_version }}"
+
+# --- Étape 2 : Vérification version cgroups ---
+- name: Check current cgroup version for delegation
+  ansible.builtin.shell: |
+    if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+      echo "v2"
+    else
+      echo "v1"
+    fi
+  register: cgroup_version_for_delegation
+  changed_when: false
+
+# ==============================================================================
+# RHEL 9+ : Configuration simplifiée (systemd 250+ gère la délégation nativement)
+# ==============================================================================
+- name: Configure cgroup delegation for RHEL 9+
+  when:
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version | int >= 9
+  block:
+    - name: Ensure systemd drop-in directory exists for user@ service (RHEL 9)
+      ansible.builtin.file:
+        path: /etc/systemd/system/user@.service.d
+        state: directory
+        mode: '0755'
+
+    - name: Create delegate.conf for user@ service (RHEL 9+)
+      ansible.builtin.template:
+        src: delegate.conf.j2
+        dest: /etc/systemd/system/user@.service.d/delegate.conf
+        mode: '0644'
+      register: delegate_conf_rhel9
+
+    - name: Reload systemd daemon (RHEL 9)
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: delegate_conf_rhel9.changed
+
+    - name: Restart user service to apply delegation (RHEL 9)
+      ansible.builtin.systemd:
+        name: "user@{{ podman_user_uid }}"
+        state: restarted
+      when: delegate_conf_rhel9.changed
+
+# ==============================================================================
+# RHEL 8 : Solution complète KB 5913671
+# Reference: https://access.redhat.com/solutions/5913671
+# ==============================================================================
+- name: Implement Red Hat KB solution for cgroup delegation (RHEL 8 only)
+  when:
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version == '8'
+  block:
+    # Step 1: Create user-0.slice unit
+    - name: Create user-0.slice systemd unit (RHEL 8)
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Before=systemd-logind.service
+
+          [Slice]
+          Slice=user.slice
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/user-0.slice
+        mode: '0644'
+      register: user0_slice
+
+    # Step 2: Configure delegation for user@ service
+    - name: Ensure systemd drop-in directory exists for user@ service (RHEL 8)
+      ansible.builtin.file:
+        path: /etc/systemd/system/user@.service.d
+        state: directory
+        mode: '0755'
+
+    - name: Create delegate.conf for user@ service (RHEL 8)
+      ansible.builtin.template:
+        src: delegate.conf.j2
+        dest: /etc/systemd/system/user@.service.d/delegate.conf
+        mode: '0644'
+      register: delegate_conf
+
+    # Step 3: Configure user slice accounting
+    - name: Ensure systemd drop-in directory exists for user-.slice (RHEL 8)
+      ansible.builtin.file:
+        path: /etc/systemd/system/user-.slice.d
+        state: directory
+        mode: '0755'
+
+    - name: Create override.conf for user-.slice (RHEL 8)
+      ansible.builtin.template:
+        src: user-slice-override.conf.j2
+        dest: /etc/systemd/system/user-.slice.d/override.conf
+        mode: '0644'
+      register: slice_override
+
+    # Fallback: Configure containers.conf if needed
+    - name: Configure containers.conf for pids_limit (fallback)
+      when: podman_disable_pids_limit | default(false)
+      block:
+        - name: Ensure containers configuration directory exists
+          ansible.builtin.file:
+            path: /etc/containers
+            state: directory
+            mode: '0755'
+
+        - name: Set pids_limit=0 in containers.conf
+          ansible.builtin.lineinfile:
+            path: /etc/containers/containers.conf
+            regexp: '^pids_limit\s*='
+            line: 'pids_limit=0'
+            insertafter: '^\[containers\]'
+            create: yes
+
+# --- Étape 4 : Application des changements systemd (RHEL 8) ---
+- name: Apply systemd changes (RHEL 8)
+  when:
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version == '8'
+    - user0_slice.changed or delegate_conf.changed or slice_override.changed
+  block:
+    - name: Reload systemd daemon (RHEL 8)
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Enable user-0.slice if created (RHEL 8)
+      ansible.builtin.systemd:
+        name: user-0.slice
+        enabled: yes
+      when: user0_slice.changed
+
+    # Redémarrage des services UNIQUEMENT si cgroups v2 est actif
+    - name: Restart services to apply delegation (RHEL 8 + Cgroups v2)
+      when: cgroup_version_for_delegation.stdout == "v2"
+      block:
+        - name: Restart systemd-logind (RHEL 8)
+          ansible.builtin.systemd:
+            name: systemd-logind
+            state: restarted
+
+        - name: Pause for logind stabilization (RHEL 8)
+          ansible.builtin.pause:
+            seconds: 3
+
+        - name: Restart user service (RHEL 8)
+          ansible.builtin.systemd:
+            name: "user@{{ podman_user_uid }}"
+            state: restarted
+
+# --- Étape 5 : Vérification (si v2 actif) ---
+- name: Verify delegation in cgroups v2
+  when: cgroup_version_for_delegation.stdout == "v2"
+  block:
+    - name: Check if cgroup controllers are delegated
+      ansible.builtin.shell: |
+        cat /sys/fs/cgroup/user.slice/user-{{ podman_user_uid }}.slice/user@{{ podman_user_uid }}.service/cgroup.controllers 2>/dev/null || echo "not_found"
+      register: controllers_check
+      changed_when: false
+      retries: 3
+      delay: 5
+
+    - name: Display delegation status
+      ansible.builtin.debug:
+        msg:
+          - "=== DELEGATION STATUS ==="
+          - "RHEL Version: {{ ansible_distribution_major_version }}"
+          - "Controllers available: {{ controllers_check.stdout }}"
+          - "Result: {{ 'SUCCESS' if ('cpu' in controllers_check.stdout and 'memory' in controllers_check.stdout) else 'PENDING - May require reboot (RHEL 8) or session restart' }}"
+
+# --- Étape 6 : Helper Service pour RHEL 8 (Boot-time persistence) ---
+- name: Create helper service for boot-time delegation (RHEL 8)
+  when:
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version == '8'
+    - podman_create_delegation_helper | default(true)
+  block:
+    - name: Create podman delegation helper service (RHEL 8)
+      ansible.builtin.template:
+        src: podman-delegation-helper.service.j2
+        dest: /etc/systemd/system/podman-delegation-helper.service
+        mode: '0644'
+      notify: reload systemd
+
+    - name: Enable delegation helper service (RHEL 8)
+      ansible.builtin.systemd:
+        name: podman-delegation-helper
+        enabled: yes
+        state: "{{ 'started' if cgroup_version_for_delegation.stdout == 'v2' else 'stopped' }}"

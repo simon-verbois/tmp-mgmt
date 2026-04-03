@@ -1,0 +1,13 @@
+---
+- name: Security - Update RHEL crypto policies
+  hosts: all
+  become: true
+
+# Usage
+# ansible-playbook playbooks/tools/security/update_crypto_policies.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    UPDATE_CRYPTO_POLICIES: true
+
+  roles:
+    - tools

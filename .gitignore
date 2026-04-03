@@ -1,0 +1,20 @@
+# Project mandatory folders
+vaults/*
+clients/*
+import/*
+export/*
+!import/*.sample
+!import/README.md
+
+# Exclude collections, except requirements
+collections/*
+!collections/requirements.yml
+!collections/README.md
+
+# Exclude everything starting by test
+_local_testing*
+
+# Exclude reports
+*.csv
+*.log
+*.pass

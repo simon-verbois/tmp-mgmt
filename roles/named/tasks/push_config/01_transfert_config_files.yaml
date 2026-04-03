@@ -1,0 +1,46 @@
+# roles/named/tasks/push_config/01_transfert_config_files.yaml
+
+---
+- name: Send templates files
+  ansible.builtin.template: 
+    src: "{{ working_dir }}/{{ client_id }}/{{ template_file.key }}"
+    dest: "{{ template_file.value.dest }}"
+    owner: "{{ template_file.value.owner }}"
+    group: "{{ template_file.value.group }}"
+    mode: "{{ template_file.value.mode }}"
+    force: "true"
+  loop: "{{ templates | dict2items }}"
+  loop_control:
+    loop_var: template_file
+  when: template_file is defined
+
+- name: Synchronize configuration files
+  ansible.posix.synchronize:
+    archive: false
+    owner: false
+    group: false
+    recursive: "{{ config.value.isdir }}"
+    src: "{{ working_dir }}/{{ client_id }}/{{ config.key }}"
+    delete: "{{ config.value.isdir }}"
+    dest: "{{ config.value.dest }}"
+    use_ssh_args: true
+    rsync_opts:
+      - "--chmod=F{{ config.value.filemode }},D{{ config.value.dirmode | default('0750') }}"
+      - "--chown={{ config.value.owner }}:{{ config.value.group }}"
+      - "--owner --group"
+      - "--perms"
+  loop: "{{ namedconf | dict2items }}"
+  loop_control:
+    loop_var: config
+
+- name: Create differents files
+  ansible.builtin.file:
+    path: "{{ neededfile.key }}"
+    owner: "{{ neededfile.value.owner }}"
+    group: "{{ neededfile.value.group }}"
+    mode: "{{ neededfile.value.mode }}"
+    state: "touch"
+    setype: _default
+  loop: "{{ neededfiles | dict2items }}"
+  loop_control:
+    loop_var: neededfile

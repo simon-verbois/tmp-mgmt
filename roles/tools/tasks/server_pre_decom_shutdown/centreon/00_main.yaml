@@ -1,0 +1,75 @@
+# roles/tools/tasks/server_pre_decom_shutdown/centreon/00_main.yaml
+
+---
+- name: "CENTREON | Main block for downtime configuration"
+  delegate_to: localhost
+  block:
+    - name: "CENTREON | Gather date_time facts locally"
+      ansible.builtin.setup:
+      run_once: true
+
+    - name: "CENTREON | Login to get API Token"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/login"
+        method: POST
+        body_format: json
+        body:
+          security:
+            credentials:
+              login: "{{ __centreon_user }}"
+              password: "{{ __centreon_password }}"
+      register: centreon_login_response
+      run_once: true
+
+    - name: "CENTREON | Set Token Fact"
+      run_once: true
+      ansible.builtin.set_fact:
+        __centreon_token: "{{ centreon_login_response.json.security.token }}"
+
+    - name: "CENTREON | Search host ID (Broad Search on name and alias)"
+      ansible.builtin.uri:
+        url: "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/resources?search={{ search_payload | to_json | urlencode }}&types={{ '[\"host\"]' | urlencode }}"
+        method: GET
+        headers:
+          X-AUTH-TOKEN: "{{ __centreon_token }}"
+      vars:
+        search_payload:
+          $or:
+            - name:
+                $rg: "{{ inventory_hostname_short | lower }}"
+            - alias:
+                $rg: "{{ inventory_hostname_short | lower }}"
+      register: centreon_search
+
+    - name: "CENTREON | Check if Host was found"
+      ansible.builtin.assert:
+        that: centreon_search.json.result | length > 0
+        fail_msg: "Host {{ inventory_hostname_short }} not found in Centreon (checked both name and alias)."
+
+    - name: "CENTREON | Set Host IDs fact (List)"
+      ansible.builtin.set_fact:
+        centreon_host_ids: "{{ centreon_search.json.result | map(attribute='id') | list }}"
+
+    - name: "CENTREON | Calculate downtime dates and duration"
+      ansible.builtin.set_fact:
+        _downtime_raw: "{{ lookup('pipe', 'python3 -c \"import datetime; now = datetime.datetime.utcnow(); d = now + datetime.timedelta(days=274); d = d.replace(hour=14, minute=0, second=0, microsecond=0); w = d.weekday(); d -= datetime.timedelta(days=(w-4 if w > 4 else 0)); print(d.isoformat() + chr(90) + chr(124) + str(int((d - now).total_seconds())))\"') }}"
+        downtime_start: "{{ ansible_date_time.iso8601 }}"
+
+    - name: "CENTREON | Parse downtime facts"
+      ansible.builtin.set_fact:
+        downtime_end: "{{ _downtime_raw.split('|')[0] }}"
+        downtime_duration: "{{ _downtime_raw.split('|')[1] | int }}"
+
+    - name: "CENTREON | Set 9-month downtime for host(s) and their services"
+      ansible.builtin.shell: |
+        curl --silent --show-error --insecure \
+          --output /dev/null --write-out "%{http_code}" \
+          -X POST \
+          "https://{{ __centreon_fqdn }}/centreon/api/latest/monitoring/hosts/{{ item }}/downtimes" \
+          -H "Content-Type: application/json" \
+          -H "X-AUTH-TOKEN: {{ __centreon_token }}" \
+          -d '{"start_time":"{{ downtime_start }}","end_time":"{{ downtime_end }}","duration":{{ downtime_duration | int }},"is_fixed":true,"with_services":true,"comment":"9-month downtime by svc-laf-centreon (pre decom shutdown)"}'
+      loop: "{{ centreon_host_ids }}"
+      register: centreon_downtime_result
+      changed_when: centreon_downtime_result.stdout in ["200", "201", "204"]
+      failed_when: centreon_downtime_result.stdout not in ["200", "201", "204"]

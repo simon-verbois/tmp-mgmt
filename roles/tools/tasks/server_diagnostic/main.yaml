@@ -1,0 +1,44 @@
+# roles/tools/tasks/server_diagnostic/main.yaml
+
+---
+- name: Assert required variables are defined
+  ansible.builtin.assert:
+    that:
+      - target_server is defined
+      - target_server | length > 0
+    fail_msg: "target_server is not defined or empty."
+
+- name: Load server_diagnostic vars
+  ansible.builtin.include_vars:
+    file: "server_diagnostic.yaml"
+
+- name: Add inventory in mail content
+  ansible.builtin.set_fact:
+    mail_content: "{{ __mail_header }}" # We get the default vars from the common role
+
+# Run tests
+- block:
+  - ansible.builtin.include_tasks: tests/connectivity.yaml
+  - ansible.builtin.include_tasks: tests/system_informations.yaml
+  - ansible.builtin.include_tasks: tests/cpu.yaml
+  - ansible.builtin.include_tasks: tests/memory_swap.yaml
+  - ansible.builtin.include_tasks: tests/services.yaml
+  - ansible.builtin.include_tasks: tests/storage.yaml
+
+# Always send execution result
+  always:
+  - name: Send playbook result by email
+    run_once: true
+    community.general.mail:
+      host: "localhost"
+      port: "25"
+      sender: "{{ __mail_from }}"
+      to: "{{ mail_recipient }}"
+      subject: "{{ __mail_subject }}"
+      body: "{{ mail_content | default('An error occur during mail_content creation.') }}"
+      charset: utf8
+      subtype: html
+    loop: "{{ __mail_to }}"
+    loop_control:
+      loop_var: mail_recipient
+    when: mail_content | length > 0

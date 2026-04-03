@@ -1,0 +1,8 @@
+# roles/common/tasks/main.yaml
+
+---
+- name: Load all vars from vars directory
+  include_vars:
+    dir: "{{ role_path }}/vars"
+    extensions: ['yaml', 'yml']
+  tags: always

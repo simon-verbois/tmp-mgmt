@@ -1,0 +1,63 @@
+# roles/automation/tasks/sync_git_client_repo_to_aap/processing/process_one_repo.yaml
+
+---
+- name: "GIT | Clone repository {{ gitlab_project.name }}"
+  delegate_to: tower.csv.local
+  ansible.builtin.git:
+    repo: "https://oauth2:{{ __gitlab_ictlas_token }}@{{ __gitlab_fqdn }}/ict-las/clients/{{ gitlab_project.name }}.git"
+    dest: "{{ working_dir }}/{{ gitlab_project.name }}"
+    version: "{{ gitlab_project.default_branch }}"
+    accept_hostkey: yes
+    force: yes
+
+- name: "FIX | Convert INI files to Unix format (Remove CRLF)"
+  delegate_to: tower.csv.local
+  ansible.builtin.shell:
+    cmd: "find . -name '*.ini' -type f -exec sed -i 's/\\r$//' {} \\;"
+    chdir: "{{ working_dir }}/{{ gitlab_project.name }}"
+  ignore_errors: yes
+
+- name: "TOWER | Ensure Project '[LAF-CLIENT] {{ gitlab_project.name }}' exists"
+  delegate_to: localhost
+  ansible.controller.project:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    name: "[LAF-CLIENT] {{ gitlab_project.name }}"
+    organization: "Linux"
+    scm_type: git
+    scm_url: "{{ gitlab_project.http_url }}"
+    scm_branch: "{{ gitlab_project.default_branch }}"
+    credential: "ICT-LAS - LAF - Gitlab - svc-laf-gitlab-ictlas"
+    scm_clean: yes
+    scm_delete_on_update: no
+    scm_update_on_launch: yes
+    state: present
+
+- name: "FS | Find .ini files in {{ gitlab_project.name }}"
+  delegate_to: tower.csv.local
+  ansible.builtin.find:
+    paths: "{{ working_dir }}/{{ gitlab_project.name }}"
+    patterns: "*.ini"
+    recurse: no
+  register: ini_files_found
+
+- name: "PROCESS | Configure Inventories for {{ gitlab_project.name }}"
+  block:
+    - ansible.builtin.include_tasks: configure_inventory.yaml
+      loop: "{{ ini_files_found.files }}"
+      loop_control:
+        loop_var: ini_file
+        label: "{{ ini_file.path | basename }}"
+  rescue:
+    - name: "ERROR | Capture include failure for {{ gitlab_project.name }}"
+      ansible.builtin.set_fact:
+        problematic_repos: "{{ problematic_repos | default([]) + [gitlab_project.name ~ ' (FAILED: task include error)'] }}"
+        cacheable: yes
+
+- name: "CLEANUP | Remove local repository {{ gitlab_project.name }}"
+  delegate_to: tower.csv.local
+  ansible.builtin.file:
+    path: "{{ working_dir }}/{{ gitlab_project.name }}"
+    state: absent

@@ -1,0 +1,18 @@
+#################################################################
+##    Ansible managed (refer to Linux Automation Framework)    ##
+##              Your change will be overwritten!!              ##
+#################################################################
+
+[Unit]
+Description=NNT ChangeTracker
+After=network.target
+
+[Service]
+PIDFile=/var/run/nntgen7agentcore.pid
+WorkingDirectory=/opt/nnt/gen7agentcore
+ExecStart=/opt/nnt/gen7agentcore/bin/Gen7Agent.App.NetCore -s
+Type=simple
+SyslogIdentifier=NNTGen7AgentCore
+
+[Install]
+WantedBy=multi-user.target

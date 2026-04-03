@@ -1,0 +1,91 @@
+# roles/redhat_podman/tasks/storage.yml
+
+---
+- name: Install LVM packages (RHEL 7 via yum)
+  ansible.builtin.yum:
+    name: lvm2
+    state: present
+  when: ansible_distribution_major_version == '7'
+
+- name: Install LVM packages (RHEL 8+ via dnf)
+  ansible.builtin.dnf:
+    name: lvm2
+    state: present
+  when: ansible_distribution_major_version | int >= 8
+
+- name: Create volume groups
+  community.general.lvg:
+    vg: "{{ item.name }}"
+    pvs: "{{ item.data_device }}"
+    state: present
+  loop: "{{ podman_volume_groups | default([]) }}"
+  register: vg_creation
+
+- name: Check if logical volumes already exist
+  ansible.builtin.stat:
+    path: "/dev/{{ item.vg }}/{{ item.name }}"
+  loop: "{{ podman_mountpoints | default([]) }}"
+  register: lv_existing_check
+
+- name: Create logical volumes with size in GB
+  community.general.lvol:
+    vg: "{{ item.item.vg }}"
+    lv: "{{ item.item.name }}"
+    size: "{{ item.item.size_gb }}g"
+    state: present
+  loop: "{{ lv_existing_check.results }}"
+  when:
+    - not item.stat.exists
+    - item.item.size_gb is defined
+    - item.item.size_percent is not defined
+  register: lv_creation_gb
+
+- name: Create logical volumes with percentage
+  community.general.lvol:
+    vg: "{{ item.item.vg }}"
+    lv: "{{ item.item.name }}"
+    size: "{{ item.item.size_percent }}%VG"
+    state: present
+  loop: "{{ lv_existing_check.results }}"
+  when:
+    - not item.stat.exists
+    - item.item.size_percent is defined
+  register: lv_creation_percent
+
+- name: Check logical volume devices exist
+  ansible.builtin.stat:
+    path: "/dev/{{ item.vg }}/{{ item.name }}"
+  loop: "{{ podman_mountpoints | default([]) }}"
+  register: lv_device_check
+
+- name: Create filesystems on logical volumes
+  community.general.filesystem:
+    fstype: xfs
+    dev: "/dev/{{ item.item.vg }}/{{ item.item.name }}"
+  loop: "{{ lv_device_check.results }}"
+  when: item.stat.exists
+
+- name: Ensure mount paths exist
+  ansible.builtin.file:
+    path: "{{ item.mount_path }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ podman_mountpoints | default([]) }}"
+
+- name: Mount the filesystems
+  ansible.posix.mount:
+    path: "{{ item.mount_path }}"
+    src: "/dev/mapper/{{ item.vg|replace('-', '--') }}-{{ item.name|replace('-', '--') }}"
+    fstype: xfs
+    state: mounted
+    opts: "{{ item.mount_opts | default('defaults,noatime') }}"
+  loop: "{{ podman_mountpoints | default([]) }}"
+  register: mount_result
+
+- name: Set correct permissions on mount points
+  ansible.builtin.file:
+    path: "{{ item.mount_path }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ podman_mountpoints | default([]) }}"
+  when: mount_result is changed

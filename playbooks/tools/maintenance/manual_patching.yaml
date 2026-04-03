@@ -1,0 +1,16 @@
+---
+- name: Maintenance - Do a manual patching of a RHEL server
+  hosts: all
+  gather_facts: true
+  ignore_unreachable: true
+  become: true
+
+# Usage
+# ansible-playbook playbooks/tools/maintenance/manual_patching.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    MANUAL_PATCHING: true
+
+  roles:
+    - common
+    - tools

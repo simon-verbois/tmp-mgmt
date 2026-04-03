@@ -1,0 +1,65 @@
+# roles/tools/tasks/server_extend_lvm_volume/host/extend_lvm.yaml
+
+---
+- name: "HOST | Record BEFORE state for {{ target_path }}"
+  ansible.builtin.shell: |
+    df -h "{{ target_path }}" | awk 'NR==2 {print $2, $3, $4, $5}'
+  become: true
+  register: state_before
+  changed_when: false
+
+- name: "HOST | Hardware rescan, partition grow and PV resize"
+  become: true
+  when: vcenter_disk_add_gb | int > 0
+  ansible.builtin.shell: |
+    set -e
+    BASE_DISK="/dev/{{ lvm_info.base_disk }}"
+    PV_DEVICE="{{ lvm_info.pv_device }}"
+
+    echo 1 > /sys/class/block/{{ lvm_info.base_disk }}/device/rescan
+    sleep 2
+
+    if [ "$BASE_DISK" != "$PV_DEVICE" ]; then
+      PART_NUM=$(echo "$PV_DEVICE" | sed -e "s|$BASE_DISK||" -e "s|^p||")
+      parted -s "$BASE_DISK" resizepart "$PART_NUM" 100%
+      partprobe "$BASE_DISK"
+      sleep 2
+    fi
+
+    pvresize "$PV_DEVICE"
+
+- name: "HOST | Extend LV and resize filesystem by {{ requested_add_size_gb }} GB"
+  ansible.builtin.command: "lvextend -r -L +{{ requested_add_size_gb }}G {{ lvm_info.lv_device }}"
+  become: true
+  register: lvextend_result
+
+- name: "HOST | Record AFTER state for {{ target_path }}"
+  ansible.builtin.shell: |
+    df -h "{{ target_path }}" | awk 'NR==2 {print $2, $3, $4, $5}'
+  become: true
+  register: state_after
+  changed_when: false
+
+- name: "HOST | Extension summary"
+  vars:
+    _border: "╠══════════════════════════════════════════════════════════════╣"
+    _b: "{{ state_before.stdout.split() }}"
+    _a: "{{ state_after.stdout.split() }}"
+    _report: |-
+      ╔══════════════════════════════════════════════════════════════╗
+      ║              LVM EXTENSION - EXECUTION REPORT                ║
+      {{ _border }}
+      {{ "║ %-61s║" | format("TARGET") }}
+      {{ "║  %-60s║" | format("Path:             " ~ target_path) }}
+      {{ "║  %-60s║" | format("Extended:         +" ~ requested_add_size_gb ~ " GB") }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("BEFORE") }}
+      {{ "║  %-60s║" | format("Total: " ~ _b[0] ~ "  |  Used: " ~ _b[1] ~ "  |  Free: " ~ _b[2] ~ "  |  " ~ _b[3]) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("AFTER") }}
+      {{ "║  %-60s║" | format("Total: " ~ _a[0] ~ "  |  Used: " ~ _a[1] ~ "  |  Free: " ~ _a[2] ~ "  |  " ~ _a[3]) }}
+      {{ _border }}
+      {{ "║ %-61s║" | format("STATUS:           OK") }}
+      ╚══════════════════════════════════════════════════════════════╝
+  ansible.builtin.debug:
+    msg: "{{ '\n' ~ _report }}"

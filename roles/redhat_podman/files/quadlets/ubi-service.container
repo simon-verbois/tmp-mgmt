@@ -1,0 +1,13 @@
+[Unit]
+Description=A simple UBI minimal service that runs forever
+After=network-online.target
+
+[Container]
+Image=registry.access.redhat.com/ubi9/ubi-minimal:latest
+Exec=sleep infinity
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

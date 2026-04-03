@@ -1,0 +1,10 @@
+# roles/squid/tasks/main.yaml
+
+---
+- name: Include installation tasks
+  ansible.builtin.include_tasks: installation/00_main.yaml
+  when: SQUID_INSTALLATION | default(false)
+
+- name: Include push_config tasks
+  ansible.builtin.include_tasks: push_config/00_main.yaml
+  when: SQUID_PUSH_CONFIG | default(false)

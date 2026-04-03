@@ -1,0 +1,39 @@
+---
+# Initialization settings
+send_creds_via_mail: true
+groups_to_add: ["linux"]
+
+# Default values
+default_homedir: "/home"
+default_shell: "/bin/bash"
+
+# Domain
+ipaserver_domain: "test.local"
+ipaserver_realm: "TEST.LOCAL"
+
+# Passwords
+ipaadmin_password: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;client_data
+          xxxxxxxxxxxxxxxxxxxxxxxxx
+
+ipadm_password: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;client_data
+          xxxxxxxxxxxxxxxxxxxxxxxxx
+
+# DNS
+ipaserver_setup_dns: true
+ipaserver_forwarders:
+  - "10.3.2.21"
+  - "10.3.2.22"
+ipaserver_forward_policy: "only"
+ipaserver_no_dnssec_validation: true
+
+# Clients
+ipaclient_mkhomedir: true
+ipaclient_no_ntp: true
+ipaclient_no_sshd: true
+ipaserver_no_hbac_allow: true
+
+# Best practices
+ipaserver_setup_firewalld: false
+ipaserver_random_serial_numbers: true

@@ -1,0 +1,84 @@
+# roles/azure_arc/tasks/installation/main.yaml
+
+---
+- name: "Check if target filesystems are already mounted"
+  ansible.builtin.shell: |
+    MOUNTED=true
+    mountpoint -q "{{ __azurearc_mount_azcmagent }}" 2>/dev/null || MOUNTED=false
+    mountpoint -q "{{ __azurearc_mount_guestconfig }}" 2>/dev/null || MOUNTED=false
+    echo "$MOUNTED"
+  register: __azurearc_mounts_check
+  changed_when: false
+
+- name: "Set disk readiness fact"
+  ansible.builtin.set_fact:
+    __azurearc_disk_ready: "{{ __azurearc_mounts_check.stdout | trim | bool }}"
+
+- name: "Debug mount status"
+  ansible.builtin.debug:
+    msg: "{{ 'Filesystems already mounted — skipping disk provisioning.' if __azurearc_disk_ready else 'Filesystems not ready — starting disk provisioning.' }}"
+
+# ============================================================
+# 1-3. Disk provisioning (only if not already mounted)
+# ============================================================
+- name: "Disk provisioning"
+  when: not __azurearc_disk_ready
+  block:
+    - name: "Include vg_data existence check"
+      ansible.builtin.include_tasks: checks/vg_data_exists.yaml
+
+    - name: "Handle existing vg_data (extend if needed)"
+      when: __azurearc_vg_data_exists
+      block:
+        - name: "Include current VG free space check"
+          ansible.builtin.include_tasks: checks/current_vg_space.yaml
+
+        - name: "Extend vCenter disk if VG space is insufficient"
+          when: __azurearc_vcenter_add_gb | int > 0
+          block:
+            - name: "Include vCenter get disk info"
+              ansible.builtin.include_tasks: vcenter/00_main.yaml
+              vars:
+                vcenter_action: "get_disk_info"
+
+            - name: "Include disk comparison to identify target disk"
+              ansible.builtin.include_tasks: checks/compare_disks.yaml
+
+            - name: "Include vCenter disk extension"
+              ansible.builtin.include_tasks: vcenter/00_main.yaml
+              vars:
+                vcenter_action: "extend_disk"
+
+            - name: "Include OS-level rescan and PV resize"
+              ansible.builtin.include_tasks: host/extend_lvm.yaml
+
+    - name: "Handle missing vg_data (add disk, create VG)"
+      when: not __azurearc_vg_data_exists
+      block:
+        - name: "Include empty disk detection (idempotency for re-runs)"
+          ansible.builtin.include_tasks: checks/find_empty_disk.yaml
+
+        - name: "Add new disk via vCenter (only if no empty disk found)"
+          when: __azurearc_empty_disk is not defined
+          block:
+            - name: "Include vCenter get disk info"
+              ansible.builtin.include_tasks: vcenter/00_main.yaml
+              vars:
+                vcenter_action: "get_disk_info"
+
+            - name: "Include vCenter add new disk"
+              ansible.builtin.include_tasks: vcenter/00_main.yaml
+              vars:
+                vcenter_action: "add_disk"
+
+        - name: "Include OS-level VG creation"
+          ansible.builtin.include_tasks: host/create_vg.yaml
+
+    - name: "Include filesystem creation and mounting"
+      ansible.builtin.include_tasks: host/create_filesystems.yaml
+
+# ============================================================
+# 4. Install and connect Azure Arc agent
+# ============================================================
+- name: "Include Azure Arc installation"
+  ansible.builtin.include_tasks: host/install.yaml

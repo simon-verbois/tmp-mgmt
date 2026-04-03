@@ -1,0 +1,26 @@
+# roles/tools/tasks/server_add_cpu/checks/gather_cpu_info.yaml
+
+---
+- name: "GATHER | Collect OS CPU information"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+
+      CPU_ONLINE=$(grep -c ^processor /proc/cpuinfo)
+      CPU_TOTAL=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
+      ARCH=$(uname -m)
+
+      cat <<EOF
+      {
+        "cpu_online": "$CPU_ONLINE",
+        "cpu_total": "$CPU_TOTAL",
+        "arch": "$ARCH"
+      }
+      EOF
+  become: true
+  register: os_cpu_raw
+  changed_when: false
+
+- name: "GATHER | Parse OS CPU info"
+  ansible.builtin.set_fact:
+    os_cpu_info: "{{ os_cpu_raw.stdout | from_json }}"

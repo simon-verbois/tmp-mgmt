@@ -1,0 +1,23 @@
+# roles/automation/tasks/create_client_repo_on_git/collecting/satellite_locations.yaml
+
+---
+- name: "COLLECTING | List all locations from {{ __satellite_https_url }}"
+  ansible.builtin.uri:
+    url: "{{ __satellite_https_url }}/api/v2/locations?per_page=1000"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json"
+    user: "{{ __satellite_svc_user }}"
+    password: "{{ __satellite_svc_token }}"
+    force_basic_auth: yes
+  register: satellite_locations_response
+
+- name: "COLLECTING | Build satellite_locations_list"
+  ansible.builtin.set_fact:
+    satellite_locations_list: >-
+      {{ (satellite_locations_response.json.results | default([]))
+         | map(attribute='name')
+         | reject('equalto', 'Default Location')
+         | list | unique }}

@@ -1,0 +1,50 @@
+---
+- name: Audit - Check if SPM status passed
+  hosts: all
+  gather_facts: false
+  serial: 20
+  become: yes
+ 
+# Usage
+# ansible-playbook playbooks/tools/audits/spm_status.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+# ansible-playbook playbooks/tools/audits/spm_status.yaml -i clients/XXXX/hosts.ini
+
+  tasks:
+    - name: Remove existing report file
+      delegate_to: localhost
+      run_once: true
+      become: no
+      ansible.builtin.file:
+        path: "./yum_audit_report.csv"
+        state: absent
+
+    - name: Create report file with CSV headers
+      delegate_to: localhost
+      run_once: true
+      become: no
+      ansible.builtin.copy:
+        dest: "./yum_audit_report.csv"
+        content: "Hostname,Uptime,Last_YUM_History\n"
+
+    - name: Fetch last 5 yum history entries
+      ansible.builtin.shell: "yum history | head -n 11 | tail -n 6"
+      register: yum_history_out
+      changed_when: false
+      failed_when: false
+
+    - name: Fetch server uptime
+      ansible.builtin.command: uptime -p
+      register: uptime_out
+      changed_when: false
+      failed_when: false
+
+    - name: Append result to local CSV
+      delegate_to: localhost
+      become: no
+      ansible.builtin.lineinfile:
+        path: "./yum_audit_report.csv"
+        line: >-
+          {{ inventory_hostname }},
+          {{ uptime_out.stdout | default('N/A') }},
+          "{{ yum_history_out.stdout | default('No History') | replace('\n', ' | ') }}"
+        insertafter: EOF

@@ -1,0 +1,65 @@
+---
+# Deploy classic systemd system units for RHEL 7
+# Equivalent fonctionnel des Quadlets sans cgroups v2
+
+- name: Ensure user info is loaded
+  ansible.builtin.include_tasks: common_user_info.yml
+
+- name: Check if unit files exist on controller
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/systemd/{{ item }}"
+  loop: "{{ podman_systemd_unit_files }}"
+  register: unit_file_check
+  run_once: true
+
+- name: Fail if unit files are missing on controller
+  delegate_to: localhost
+  run_once: true
+  ansible.builtin.fail:
+    msg: "Systemd unit file not found on controller: files/systemd/{{ item.item }}"
+  loop: "{{ unit_file_check.results }}"
+  when: not item.stat.exists
+
+- name: Deploy systemd unit files to /etc/systemd/system/
+  ansible.builtin.copy:
+    src: "systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ podman_systemd_unit_files }}"
+  register: unit_deployment
+  notify: reload systemd
+
+- name: Flush handlers to reload systemd
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start systemd unit services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  loop: "{{ podman_systemd_unit_files }}"
+  register: unit_start
+
+- name: Wait for services to stabilize
+  ansible.builtin.pause:
+    seconds: 5
+  when: unit_start.changed
+
+- name: Check status of deployed services
+  ansible.builtin.command: "systemctl is-active {{ item }}"
+  loop: "{{ podman_systemd_unit_files }}"
+  register: unit_status
+  changed_when: false
+  failed_when: false
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg: |
+      Systemd Units Status (RHEL 7 mode):
+      {% for res in unit_status.results %}
+      - {{ res.item }}: {{ 'ACTIVE' if res.rc == 0 else 'FAILED' }}
+      {% endfor %}

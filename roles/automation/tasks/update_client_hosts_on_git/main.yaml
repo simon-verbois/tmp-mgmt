@@ -1,0 +1,47 @@
+# roles/automation/tasks/update_client_hosts_on_git/main.yaml
+
+---
+- block:
+  - ansible.builtin.include_tasks: collecting/gitlab_repositories.yaml
+
+  - name: "Process each repository to generate inventory"
+    ansible.builtin.include_tasks: repo_management/update_inventories.yaml
+    loop: "{{ gitlab_repositories_list }}"
+    loop_control:
+      loop_var: "client_id"
+
+  always:
+  - name: "Format email body"
+    ansible.builtin.set_fact:
+      mail_subject: "[LAF] Update client hosts file on git"
+      mail_body_content: |
+        {{ __mail_header }}
+        <br><br>
+        <b>Clients for whom the inventory update failed:</b>
+        <br>
+        <ul>
+        {% for repo_id in problematic_repos %}
+          <li>{{ repo_id }}</li>
+        {% endfor %}
+        </ul>
+    run_once: true
+    delegate_to: localhost
+    when: problematic_repos | default([]) | length > 0
+
+  - name: "Send playbook result via mail"
+    run_once: true
+    delegate_to: localhost
+    become: false
+    community.general.mail:
+      host: "localhost"
+      port: "25"
+      sender: "{{ __mail_from }}"
+      to: "{{ mail_recipient }}"
+      subject: "{{ mail_subject }}"
+      body: "{{ mail_body_content }}"
+      charset: utf8
+      subtype: html
+    loop: "{{ __mail_to }}"
+    loop_control:
+      loop_var: mail_recipient
+    when: problematic_repos | default([]) | length > 0

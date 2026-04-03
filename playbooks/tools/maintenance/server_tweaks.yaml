@@ -1,0 +1,15 @@
+---
+- name: Maintenance - Apply miscellaneous server tweaks
+  hosts: all
+  gather_facts: no
+  become: true
+
+# Usage
+# ansible-playbook playbooks/tools/maintenance/server_tweaks.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    SERVER_TWEAKS: true
+
+  roles:
+    - tools
+    

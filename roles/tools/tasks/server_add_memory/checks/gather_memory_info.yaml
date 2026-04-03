@@ -1,0 +1,26 @@
+# roles/tools/tasks/server_add_memory/checks/gather_memory_info.yaml
+
+---
+- name: "GATHER | Collect OS memory information"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+
+      MEM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+      MEM_AVAILABLE_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+      MEM_FREE_KB=$(grep MemFree /proc/meminfo | awk '{print $2}')
+
+      cat <<EOF
+      {
+        "mem_total_kb": "$MEM_TOTAL_KB",
+        "mem_available_kb": "$MEM_AVAILABLE_KB",
+        "mem_free_kb": "$MEM_FREE_KB"
+      }
+      EOF
+  become: true
+  register: os_mem_raw
+  changed_when: false
+
+- name: "GATHER | Parse OS memory info"
+  ansible.builtin.set_fact:
+    os_mem_info: "{{ os_mem_raw.stdout | from_json }}"

@@ -1,0 +1,7 @@
+# roles/azure_arc/handlers/main.yaml
+
+---
+- name: __azurearc_reload_systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true

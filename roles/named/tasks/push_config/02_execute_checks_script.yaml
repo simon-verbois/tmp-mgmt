@@ -1,0 +1,153 @@
+# roles/named/tasks/push_config/02_execute_checks_script.yaml
+
+---
+- name: "Ensure the checkdns script is present"
+  ansible.builtin.copy:
+    src: checkdns.sh
+    dest: /usr/local/bin/checkdns.sh
+    owner: root
+    group: root
+    mode: '0750'
+    setype: _default
+
+- name: "Execute the checkdns script"
+  ansible.builtin.shell: /usr/local/bin/checkdns.sh {{ dns_scope }}
+  register: checkdns_execution_result
+  failed_when: false
+
+- name: "Parse the checkdns JSON output"
+  ansible.builtin.set_fact:
+    checkdns_report: "{{ checkdns_execution_result.stdout | from_json }}"
+  when: checkdns_execution_result.stdout is defined and checkdns_execution_result.stdout != ""
+
+- name: "DEBUG - Display for Global Configuration Error"
+  ansible.builtin.debug:
+    msg: 
+      - "{{ checkdns_execution_result.stdout_lines }}"
+      - "{{ checkdns_execution_result.stderr_lines }}"
+  when: checkdns_report.CheckForGlobalConfigurationErrors == "FAILURE"
+
+- name: "FAIL - Check for Global Configuration Errors (scope: {{ dns_scope }})"
+  ansible.builtin.fail:
+    msg: "CRITICAL ERROR: Invalid global BIND configuration. See debug output above for details."
+  when: checkdns_report.CheckForGlobalConfigurationErrors == "FAILURE"
+
+- name: "DEBUG - Display forNamed.conf Configuration Error"
+  ansible.builtin.debug:
+    msg: 
+      - "{{ checkdns_execution_result.stdout_lines }}"
+      - "{{ checkdns_execution_result.stderr_lines }}"
+  when: checkdns_report.CheckForNamedConfConfigurationErrors == "FAILURE"
+
+- name: "FAIL - Check for Named.conf Configuration Errors (scope: {{ dns_scope }})"
+  ansible.builtin.fail:
+    msg: "CRITICAL ERROR: Invalid zone configuration (named-checkconf -z). See debug output above for details."
+  when: checkdns_report.CheckForNamedConfConfigurationErrors == "FAILURE"
+
+- name: "FAIL - Check for individual Zone File Errors (scope: {{ dns_scope }})"
+  ansible.builtin.fail:
+    msg: "CRITICAL ERROR: An individual zone file is invalid. Error: {{ checkdns_report.CheckForZoneConfigurationErrors }}"
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckForZoneConfigurationErrors != "SUCCESS"
+
+- name: "WARNING - Check for Forwarders Query Errors (scope: {{ dns_scope }})"
+  ansible.builtin.debug:
+    msg: "WARNING: Queries to forwarders failed: {{ checkdns_report.ZonesQueryForwardersErrors }}"
+  when:
+    - dns_scope == 'internal'
+    - checkdns_report.ZonesQueryForwardersErrors is defined
+    - checkdns_report.ZonesQueryForwardersErrors | length > 0
+
+- name: "ASSERT - Check for unused Slave files (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckForSlavesInNamed | length == 0
+    fail_msg: "ERROR: Unused slave files found: {{ checkdns_report.CheckForSlavesInNamed }}"
+    quiet: true
+  when: checkdns_report.CheckForSlavesInNamed is defined
+
+- name: "ASSERT - Check for unused ACLs (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckForUnusedACLs | length == 0
+    fail_msg: "ERROR: Unused ACLs found: {{ checkdns_report.CheckForUnusedACLs }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckForUnusedACLs is defined
+
+- name: "ASSERT - Check for missing ACL routes (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckForACLNetworkRoute | length == 0 or "SKIPPED_DEFAULT_GW_IS_CONFIGURED" in checkdns_report.CheckForACLNetworkRoute
+    fail_msg: "ERROR: Missing routes for ACLs: {{ checkdns_report.CheckForACLNetworkRoute }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckForACLNetworkRoute is defined
+
+- name: "ASSERT - CheckClientsZonesAreInView (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckClientsZonesAreInView | length == 0
+    fail_msg: "ERROR: Zone inclusion issue in views: {{ checkdns_report.CheckClientsZonesAreInView }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckClientsZonesAreInView is defined
+
+- name: "ASSERT - CheckClientsZonesAreIncludedInAllClients (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckClientsZonesAreIncludedInAllClients | length == 0
+    fail_msg: "ERROR: Client zones not included in 'all-clients': {{ checkdns_report.CheckClientsZonesAreIncludedInAllClients }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckClientsZonesAreIncludedInAllClients is defined
+
+- name: "ASSERT - CheckClientsZonesIsntIncludedInView (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckClientsZonesIsntIncludedInView | length == 0
+    fail_msg: "ERROR: Client zones incorrectly included in view: {{ checkdns_report.CheckClientsZonesIsntIncludedInView }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckClientsZonesIsntIncludedInView is defined
+
+- name: "ASSERT - CheckClientsReverseZones (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckClientsReverseZones | length == 0
+    fail_msg: "ERROR: Client reverse zones not in master.zones: {{ checkdns_report.CheckClientsReverseZones }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckClientsReverseZones is defined
+
+- name: "ASSERT - CheckClientsZones (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckClientsZones | length == 0
+    fail_msg: "ERROR: Zone files missing from data directory: {{ checkdns_report.CheckClientsZones }}"
+    quiet: true
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckClientsZones is defined
+
+- name: "ASSERT - CheckForZonesNotInNamed (scope: {{ dns_scope }})"
+  ansible.builtin.assert:
+    that:
+      - checkdns_report.CheckForZonesNotInNamed | length == 0
+    fail_msg: "ERROR: Zone files not included in named.conf: {{ checkdns_report.CheckForZonesNotInNamed }}"
+    quiet: true
+  when: checkdns_report.CheckForZonesNotInNamed is defined
+
+- name: "WARNING - Display configuration warnings (non-fatal) (scope: {{ dns_scope }})"
+  ansible.builtin.debug:
+    msg: "WARNING: {{ checkdns_report.CheckForNamedConfConfigurationWarning | length }} configuration warnings found. (e.g.: {{ checkdns_report.CheckForNamedConfConfigurationWarning | first }})"
+  when: 
+    - dns_scope == 'internal'
+    - checkdns_report.CheckForNamedConfConfigurationWarning is defined and checkdns_report.CheckForNamedConfConfigurationWarning | length > 0

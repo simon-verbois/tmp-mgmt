@@ -1,0 +1,17 @@
+# roles/redhat_idm/tasks/setup/tasks/01_groups.yaml
+
+---
+- name: Ensure User Groups exist
+  redhat.rhel_idm.ipagroup:
+    name: "{{ item }}"
+    state: present
+    ipaadmin_password: "{{ ipaadmin_password }}"
+  loop: "{{ (deep_data | dict2items | map(attribute='value.user_group') | list) + ['maxlife'] }}"
+
+- name: Ensure Host Groups exist
+  redhat.rhel_idm.ipahostgroup:
+    name: "{{ item.key }}"
+    state: present
+    ipaadmin_password: "{{ ipaadmin_password }}"
+  loop: "{{ host_groups | default({}) | dict2items }}"
+  

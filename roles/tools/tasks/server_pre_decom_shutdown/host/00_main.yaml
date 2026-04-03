@@ -1,0 +1,10 @@
+# roles/tools/tasks/server_pre_decom_shutdown/host/00_main.yaml
+
+---
+- block:
+  - name: HOST | Shutdown the host immediately using async
+    ansible.builtin.command: /sbin/shutdown -h now
+    register: shutdown_result
+    become: true
+    async: 1
+    poll: 0

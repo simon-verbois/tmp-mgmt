@@ -1,0 +1,20 @@
+# roles/elastic_agent/tasks/remove/main.yaml
+
+---
+- name: "Run Elastic Agent uninstaller"
+  ansible.builtin.shell: /opt/Elastic/Agent/elastic-agent uninstall --force
+  ignore_errors: true
+
+- name: "Ensure elastic-agent package is not installed on the servers"
+  ansible.builtin.package:
+    name: elastic-agent
+    state: absent
+
+- name: "Delete remaining files..."
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/elastic-agent/
+    - /opt/Elastic
+    - "{{ __tmp_elastic_directory }}"

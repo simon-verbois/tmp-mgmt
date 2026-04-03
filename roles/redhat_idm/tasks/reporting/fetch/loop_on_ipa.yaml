@@ -1,0 +1,239 @@
+# roles/redhat_idm/tasks/reporting/fetch/loop_on_ipa.yaml
+# Fetches all IPA data in a single Kerberos session and generates an XLSX report.
+
+---
+- name: "Set per-IPA vars for {{ current_ipa.key }}"
+  ansible.builtin.set_fact:
+    client_id: "{{ current_ipa.key | regex_replace('_.*$', '') }}"
+    ipa_domain: "{{ current_ipa.value.domain }}"
+    ipa_server: "{{ current_ipa.value.servers[0] }}"
+    ipa_user: "{{ current_ipa.value.username }}"
+    ipa_pass: "{{ current_ipa.value.password }}"
+    report_timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+  no_log: true
+
+- block:
+  - name: "Authenticate to IPA via Kerberos ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "echo -n '{{ ipa_pass }}' | kinit {{ ipa_user }}"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: kinit_result
+    failed_when: kinit_result.rc != 0
+    changed_when: false
+    no_log: true
+
+  # ── Identity ────────────────────────────────────────────────────────────────
+
+  - name: "Fetch users ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json user-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_users
+    changed_when: false
+    when: "'users' in enabled_sheets"
+
+  - name: "Fetch user groups ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json group-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_groups
+    changed_when: false
+    when: "'groups' in enabled_sheets"
+
+  - name: "Fetch hosts ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json host-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_hosts
+    changed_when: false
+    when: "'hosts' in enabled_sheets"
+
+  - name: "Fetch host groups ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json hostgroup-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_host_groups
+    changed_when: false
+    when: "'host_groups' in enabled_sheets"
+
+  # ── Policies ────────────────────────────────────────────────────────────────
+
+  - name: "Fetch sudo rules ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json sudorule-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_sudo_rules
+    changed_when: false
+    when: "'sudo_rules' in enabled_sheets"
+
+  - name: "Fetch HBAC rules ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json hbacrule-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_hbac_rules
+    changed_when: false
+    when: "'hbac_rules' in enabled_sheets"
+
+  - name: "Fetch password policies ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json pwpolicy-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_pw_policies
+    changed_when: false
+    when: "'pw_policies' in enabled_sheets"
+
+  # ── Extras ──────────────────────────────────────────────────────────────────
+
+  - name: "Fetch roles ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json role-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_roles
+    changed_when: false
+    when: "'roles' in enabled_sheets"
+
+  - name: "Fetch services ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json service-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_services
+    changed_when: false
+    when: "'services' in enabled_sheets"
+
+  - name: "Fetch DNS zones ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json dnszone-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_dns_zones
+    changed_when: false
+    when: "'dns_zones' in enabled_sheets"
+
+  - name: "Fetch HBAC services ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json hbacsvc-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_hbac_services
+    changed_when: false
+    when: "'hbac_services' in enabled_sheets"
+
+  - name: "Fetch HBAC service groups ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json hbacsvcgroup-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_hbac_service_groups
+    changed_when: false
+    when: "'hbac_service_groups' in enabled_sheets"
+
+  - name: "Fetch sudo commands ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json sudocmd-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_sudo_commands
+    changed_when: false
+    when: "'sudo_commands' in enabled_sheets"
+
+  - name: "Fetch sudo command groups ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json sudocmdgroup-find --sizelimit=9999 --all"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_sudo_cmd_groups
+    changed_when: false
+    when: "'sudo_command_groups' in enabled_sheets"
+
+  - name: "Fetch automember rules (groups) ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json automember-find --sizelimit=9999 --all --type=group"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_automember_groups
+    changed_when: false
+    when: "'automember' in enabled_sheets"
+
+  - name: "Fetch automember rules (hostgroups) ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "ipa --json automember-find --sizelimit=9999 --all --type=hostgroup"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    register: raw_automember_hostgroups
+    changed_when: false
+    when: "'automember' in enabled_sheets"
+
+  # ── Save combined JSON ───────────────────────────────────────────────────────
+
+  - name: "Save combined IPA data to JSON ({{ current_ipa.key }})"
+    delegate_to: tower.csv.local
+    ansible.builtin.copy:
+      dest: "{{ working_dir }}/ipa_data_{{ current_ipa.key }}.json"
+      content: "{{ combined_data | to_json }}"
+      mode: "0600"
+    vars:
+      combined_data:
+        meta:
+          client_id: "{{ client_id }}"
+          ipa_domain: "{{ ipa_domain }}"
+          ipa_server: "{{ ipa_server }}"
+          generated_at: "{{ lookup('pipe', 'date +%Y-%m-%d %H:%M:%S') }}"
+          enabled_sheets: "{{ enabled_sheets }}"
+        users:            "{{ (raw_users.stdout            | from_json) if raw_users            is not skipped else {} }}"
+        groups:           "{{ (raw_groups.stdout           | from_json) if raw_groups           is not skipped else {} }}"
+        hosts:            "{{ (raw_hosts.stdout            | from_json) if raw_hosts            is not skipped else {} }}"
+        host_groups:      "{{ (raw_host_groups.stdout      | from_json) if raw_host_groups      is not skipped else {} }}"
+        sudo_rules:       "{{ (raw_sudo_rules.stdout       | from_json) if raw_sudo_rules       is not skipped else {} }}"
+        hbac_rules:       "{{ (raw_hbac_rules.stdout       | from_json) if raw_hbac_rules       is not skipped else {} }}"
+        pw_policies:      "{{ (raw_pw_policies.stdout      | from_json) if raw_pw_policies      is not skipped else {} }}"
+        roles:            "{{ (raw_roles.stdout            | from_json) if raw_roles            is not skipped else {} }}"
+        services:         "{{ (raw_services.stdout         | from_json) if raw_services         is not skipped else {} }}"
+        dns_zones:        "{{ (raw_dns_zones.stdout        | from_json) if raw_dns_zones        is not skipped else {} }}"
+        hbac_services:    "{{ (raw_hbac_services.stdout    | from_json) if raw_hbac_services    is not skipped else {} }}"
+        hbac_service_groups: "{{ (raw_hbac_service_groups.stdout | from_json) if raw_hbac_service_groups is not skipped else {} }}"
+        sudo_commands:    "{{ (raw_sudo_commands.stdout    | from_json) if raw_sudo_commands    is not skipped else {} }}"
+        sudo_cmd_groups:  "{{ (raw_sudo_cmd_groups.stdout  | from_json) if raw_sudo_cmd_groups  is not skipped else {} }}"
+        automember_groups:     "{{ (raw_automember_groups.stdout     | from_json) if raw_automember_groups     is not skipped else {} }}"
+        automember_hostgroups: "{{ (raw_automember_hostgroups.stdout | from_json) if raw_automember_hostgroups is not skipped else {} }}"
+
+  # ── Generate XLSX ────────────────────────────────────────────────────────────
+
+  - name: "Generate XLSX report for {{ current_ipa.key }}"
+    delegate_to: tower.csv.local
+    ansible.builtin.command: >-
+      python3 {{ role_path }}/files/generate_xlsx_report.py
+      {{ working_dir }}/ipa_data_{{ current_ipa.key }}.json
+      {{ working_dir }}/ipa_report_{{ current_ipa.key }}_{{ report_timestamp }}.xlsx
+
+  - name: "Update mail content for {{ current_ipa.key }}"
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        <b>{{ ipa_domain }}</b> ({{ ipa_server }}) — report generated.<br>
+
+  rescue:
+  - name: "Update mail content with error for {{ current_ipa.key }}"
+    ansible.builtin.set_fact:
+      mail_content: |-
+        {{ mail_content }}
+        <b style="color:red;">{{ ipa_domain }}</b> ({{ ipa_server }}) — error during report generation.<br>
+
+  always:
+  - name: "Destroy Kerberos ticket ({{ ipa_server }})"
+    delegate_to: "{{ ipa_server }}"
+    ansible.builtin.shell: "kdestroy"
+    environment:
+      KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
+    changed_when: false
+    failed_when: false
+    no_log: true

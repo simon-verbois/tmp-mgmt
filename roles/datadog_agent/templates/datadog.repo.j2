@@ -1,0 +1,13 @@
+#################################################################
+##    Ansible managed (refer to Linux Automation Framework)    ##
+##              Your change will be overwritten!!              ##
+#################################################################
+
+[{{ __datadog_repo_name }}]
+name = {{ __datadog_repo_name }}
+baseurl = {{ __datadog_repo_baseurl }}
+enabled = 1
+gpgcheck = 1
+repo_gpgcheck = 1
+gpgkey = {{ __datadog_repo_gpgkey | join('\n       ') }}
+{% if __datadog_repo_proxy is not none and __datadog_repo_proxy | length > 0 %}proxy = {{ __datadog_repo_proxy }}{% endif %}

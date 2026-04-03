@@ -1,0 +1,14 @@
+# roles/automation/tasks/main.yaml
+
+---
+- name: Include update_client_hosts_on_git
+  ansible.builtin.include_tasks: update_client_hosts_on_git/main.yaml
+  when: UPDATE_HOSTS_ON_GIT_REPOS | default(false)
+
+- name: Include create_client_repo_on_git
+  ansible.builtin.include_tasks: create_client_repo_on_git/main.yaml
+  when: CREATE_CLIENT_REPO_ON_GIT | default(false)
+
+- name: Include sync_git_client_repo_to_aap
+  ansible.builtin.include_tasks: sync_git_client_repo_to_aap/main.yaml
+  when: SYNC_CLIENT_REPO_TO_AAP | default(false)

@@ -1,0 +1,15 @@
+---
+- name: Lifecycle - Get back server on
+  hosts: all
+  gather_facts: false
+  ignore_unreachable: true
+
+# Usage
+# ansible-playbook playbooks/tools/lifecycle/pre_decom_restart.yaml -i sv-xxxxlvuxx.rh.xxxx.local,
+
+  vars:
+    PRE_DECOM_RESTART: true
+
+  roles:
+    - common
+    - tools

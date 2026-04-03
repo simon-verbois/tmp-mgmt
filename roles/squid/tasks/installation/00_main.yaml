@@ -1,0 +1,17 @@
+# roles/squid/tasks/installation/00_main.yaml
+
+---
+- name: "Install squid"
+  become: true
+  ansible.builtin.dnf:
+    name: "squid"
+    state: present
+    update_cache: true
+    disable_gpg_check: true
+
+- name: "Start and enable squid service"
+  become: true
+  ansible.builtin.service:
+    name: "squid"
+    enabled: true
+    state: started

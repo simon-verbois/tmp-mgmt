@@ -1,0 +1,114 @@
+# roles/redhat_podman/tasks/post_install.yml
+
+---
+- name: "POST-INSTALL | Vérification finale cgroups"
+  ansible.builtin.shell: |
+    if [ -f /sys/fs/cgroup/cgroup.controllers ]; then echo "v2"; else echo "v1"; fi
+  register: final_cgroups_check
+  changed_when: false
+
+# Gestion du Reboot Automatique (RHEL 8+ uniquement — cgroups v2)
+- name: "POST-INSTALL | Redémarrage automatique si nécessaire (cgroups v2)"
+  when:
+    - ansible_distribution_major_version | int >= 8
+    - podman_reboot_required | default(false)
+    - auto_reboot | default(false) | bool
+  block:
+    - name: "POST-INSTALL | Information redémarrage"
+      ansible.builtin.debug:
+        msg: "REDEMARRAGE AUTOMATIQUE - Raison: Configuration cgroups v2"
+
+    - name: "POST-INSTALL | Redémarrage du système"
+      ansible.builtin.reboot:
+        msg: "Redémarrage pour activation cgroups v2"
+        pre_reboot_delay: 5
+        post_reboot_delay: 30
+        reboot_timeout: 600
+
+# Instructions Manuelles cgroups v2 (RHEL 8+ uniquement)
+- name: "POST-INSTALL | Instructions si redémarrage requis pour cgroups v2 (manuel)"
+  when:
+    - ansible_distribution_major_version | int >= 8
+    - podman_reboot_required | default(false)
+    - not (auto_reboot | default(false) | bool)
+  ansible.builtin.debug:
+    msg:
+      - "REDEMARRAGE REQUIS POUR CGROUPS V2"
+      - ""
+      - "Veuillez redémarrer le serveur :"
+      - "  ansible {{ inventory_hostname }} -m reboot -b"
+      - ""
+      - "Puis relancer les Quadlets si nécessaire."
+
+# Instructions Manuelles user namespaces (RHEL 7 uniquement)
+- name: "POST-INSTALL | Instructions si redémarrage requis pour user namespaces (RHEL 7)"
+  when:
+    - ansible_distribution_major_version == '7'
+    - podman_reboot_required | default(false)
+    - not (auto_reboot | default(false) | bool)
+  ansible.builtin.debug:
+    msg:
+      - "REDEMARRAGE REQUIS POUR USER NAMESPACES (RHEL 7)"
+      - ""
+      - "Le parametre kernel namespace.unpriv_enable=1 a ete ajoute."
+      - "Podman rootless ne fonctionnera qu'apres reboot."
+      - ""
+      - "Veuillez redémarrer le serveur :"
+      - "  ansible {{ inventory_hostname }} -m reboot -b"
+      - ""
+      - "Puis relancer le playbook pour charger les images."
+
+# Vérifications Fonctionnelles (si v2 actif et pas de reboot en attente — RHEL 8+ uniquement)
+- name: "POST-INSTALL | Vérifications fonctionnelles"
+  when:
+    - ansible_distribution_major_version | int >= 8
+    - final_cgroups_check.stdout == "v2"
+    - not (podman_reboot_required | default(false))
+  block:
+    # 1. Vérification de la délégation
+    - name: "POST-INSTALL | Vérification délégation cgroups"
+      ansible.builtin.shell: |
+        cat /sys/fs/cgroup/user.slice/user-$(id -u {{ podman_service_account_name }}).slice/user@$(id -u {{ podman_service_account_name }}).service/cgroup.controllers 2>/dev/null || echo "NONE"
+      register: delegation_check
+      changed_when: false
+
+    # 2. Test CPU dynamique (Simplifié pour éviter l'erreur de syntaxe)
+    - name: "POST-INSTALL | Test Podman avec limites CPU (Image locale)"
+      ansible.builtin.shell: |
+        sudo -u {{ podman_service_account_name }} -i podman run --rm --cpus 0.5 "{{ podman_images_to_load | first }}" echo 'OK' 2>&1
+      register: podman_cpu_test
+      failed_when: false
+      changed_when: false
+      when: podman_images_to_load is defined and podman_images_to_load | length > 0
+
+    # 3. Vérification des Quadlets
+    - name: "POST-INSTALL | Vérification des services Quadlets définis"
+      ansible.builtin.shell: |
+        SERVICE_NAME="{{ item | splitext | first }}.service"
+        sudo -u {{ podman_service_account_name }} -i systemctl --user is-active "$SERVICE_NAME"
+      loop: "{{ podman_quadlet_files | default([]) }}"
+      register: quadlet_status_check
+      failed_when: false
+      changed_when: false
+
+    - name: "POST-INSTALL | Résumé Final"
+      ansible.builtin.debug:
+        msg:
+          - "=== INSTALLATION TERMINEE ==="
+          - "Cgroups: v2 ACTIF"
+          - "Délégation: {{ delegation_check.stdout }}"
+          - "Test CPU: {{ 'OK' if (podman_cpu_test.skipped is defined and podman_cpu_test.skipped) else ('OK' if podman_cpu_test.rc == 0 else 'ECHEC') }}"
+          - "Services Quadlets:"
+          - "{% for res in quadlet_status_check.results %}- {{ res.item }}: {{ 'ACTIF' if res.stdout == 'active' else 'INACTIF (' + res.stdout + ')' }}{% endfor %}"
+
+# Résumé RHEL 7 (mode dégradé)
+- name: "POST-INSTALL | Résumé RHEL 7"
+  when:
+    - ansible_distribution_major_version == '7'
+    - not (podman_reboot_required | default(false))
+  ansible.builtin.debug:
+    msg:
+      - "=== INSTALLATION TERMINEE (MODE DEGRADE RHEL 7) ==="
+      - "Cgroups: v1 (v2 non supporté sur RHEL 7)"
+      - "Podman: rootless via user namespaces"
+      - "Services: units systemd systeme (pas de Quadlets)"

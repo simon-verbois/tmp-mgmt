@@ -1,0 +1,15 @@
+---
+- name: Playbook for Squid configuration push
+  hosts: all
+  gather_facts: true
+  serial: 1
+
+# Usage
+# ansible-playbook playbooks/managed_services/squid/push_config.yml -i clients/XXXX/squid.ini -l prd
+
+  vars:
+    SQUID_PUSH_CONFIG: true
+
+  roles:
+    - common
+    - squid

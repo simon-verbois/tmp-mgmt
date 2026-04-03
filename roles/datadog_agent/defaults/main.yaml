@@ -1,0 +1,13 @@
+# roles/datadog_agent/defaults/main.yaml
+
+---
+__datadog_package: "datadog-agent"
+__datadog_service: "datadog-agent"
+__datadog_repo_name: "datadog"
+__datadog_repo_baseurl: "https://OverideThisWithClientVars"
+__datadog_repo_proxy: "http://OverideThisWithClientVars"
+__datadog_repo_gpgkey:
+  - "https://OverideThisWithClientVars"
+  - "https://OverideThisWithClientVars"
+  - "https://OverideThisWithClientVars"
+

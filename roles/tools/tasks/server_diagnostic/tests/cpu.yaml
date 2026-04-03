@@ -1,0 +1,130 @@
+# roles/tools/tasks/server_diagnostic/tests/cpu.yaml
+
+---
+- name: "Add CPU header"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.3em;">CPU & Load</b>
+      </div>
+
+- block:
+    - name: Get top 5 process by CPU usage
+      ansible.builtin.shell: |
+        ps -e --sort=-%cpu -o pid= | head -n 5 | while read pid; do
+          pid=$(echo $pid | xargs)
+          if [ -n "$pid" ] && [ -f /proc/$pid/status ]; then
+               user=$(ps -p $pid -o user=)
+               cpu=$(ps -p $pid -o %cpu=)
+               mem=$(ps -p $pid -o %mem=)
+               time=$(ps -p $pid -o time=)
+               unit=$(ps -p $pid -o unit=)
+               comm=$(ps -p $pid -o comm=)
+               if [[ "$unit" =~ \.scope$ ]]; then unit="User Session / Script"; fi
+               [ -z "$unit" ] && unit="-"
+               echo "$pid;$user;$cpu;$mem;$time;$comm;$unit"
+          fi
+        done
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: top_5_cpu_usage
+      ignore_errors: true
+
+    - name: Collect load
+      ansible.builtin.shell: cat /proc/loadavg
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: load_result
+
+    - name: Determine load metrics
+      ansible.builtin.set_fact:
+        load_15m: "{{ (load_result.stdout | split)[2] | float }}"
+        load_threshold: "{{ (0.8 * ansible_processor_vcpus | float) | round(2) }}"
+        top_cpu_process_name: "{{ (top_5_cpu_usage.stdout_lines[0].split(';'))[5] if top_5_cpu_usage.stdout_lines | length > 0 else 'unknown' }}"
+
+    - name: Set Responsibility Label
+      ansible.builtin.set_fact:
+        cpu_resp_message: >-
+          {% if top_cpu_process_name in __rhel_services_list %}
+          <b style="color: #333;">Responsibility:</b> Managed (ict-linux)
+          {% elif top_cpu_process_name in __rhel_shared_services_list %}
+          <b style="color: #333;">Responsibility:</b> Shared Responsibility - Refer to <a href="https://portal.trustedcloudeurope.com/kb_view.do?sysparm_article=KB0013188" style="color: #337ab7;">KB0013188</a>
+          {% else %}
+          <b style="color: #333;">Responsibility:</b> Customer Service / Application
+          {% endif %}
+
+    - name: Define status properties
+      ansible.builtin.set_fact:
+        is_load_high: "{{ load_15m | float > load_threshold | float }}"
+        status_color: "{{ '#d9534f' if load_15m | float > load_threshold | float else '#5cb85c' }}"
+        status_label: "{{ 'CRITICAL' if load_15m | float > load_threshold | float else 'OK' }}"
+        status_message: >-
+          {{ 'The system is under heavy load. This may impact performance.' 
+             if load_15m | float > load_threshold | float 
+             else 'The system load is within normal operational parameters.' }}
+
+    - name: Add Global Status Summary Box
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid {{ status_color }}; padding: 10px; border-radius: 5px; background-color: {{ status_color }}05; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em; font-family: sans-serif;">
+            <div style="text-align: center; margin-bottom: 8px;">
+              <b style="font-size: 1.1em; color: {{ status_color }}; text-transform: uppercase;">Status: {{ status_label }}</b><br>
+              <span style="color: #555;">{{ status_message }}</span><br>
+              <span style="font-size: 0.9em; color: #666;">{{ cpu_resp_message }}</span>
+            </div>
+            
+            <div style="margin-bottom: 8px; padding: 5px 10px; border-radius: 3px;">
+              <b style="font-size: 0.85em; color: #333;">Support Checklist:</b><br>
+              <span style="font-size: 0.85em;">
+                {{ '❌' if is_load_high else '✅' }} Load threshold (80% of vCPUs)<br>
+                {{ '⚠️ Investigation required' if is_load_high else '✅ No immediate action needed' }}<br>
+                {{ '❌ High process queue' if (load_result.stdout | split)[3].split('/')[0] | int > 5 else '✅ Process queue stable' }}
+              </span>
+            </div>
+
+            <div style="border-top: 1px dashed #ccc; padding-top: 5px; font-size: 0.8em; color: #666; text-align: center;">
+              <b>vCPUs:</b> {{ ansible_processor_vcpus }} | 
+              <b>Load (1/5/15 min):</b> {{ (load_result.stdout | split)[0] }}/{{ (load_result.stdout | split)[1] }}/{{ (load_result.stdout | split)[2] }} | 
+              <b>Process (Running/Total):</b> {{ (load_result.stdout | split)[3] }}
+            </div>
+          </div>
+
+    - name: Fill mail content with top 5 CPU
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <table>
+            <tr style="background-color: #e0e0e0;">
+              <th colspan="7" style="padding: 10px; border: 1px solid #ccc; text-align: center; font-size: 1.1em;">Top 5 CPU usage</th>
+            </tr>
+            <tr style="background-color: #f5f5f5; font-size: 0.9em;">
+              <th>PID</th>
+              <th>USER</th>
+              <th>CPU%</th>
+              <th>MEM%</th>
+              <th>TIME</th>
+              <th>COMMAND</th>
+              <th>SERVICE</th>
+            </tr>
+            {% for line in top_5_cpu_usage.stdout_lines %}
+            <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
+              {% for word in line.split(';') %}
+                <td style="padding: 8px; border: 1px solid #eee;">{{ word }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </table>
+
+  rescue:
+    - name: Add CPU informations to the mail content (fallback)
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid #d9534f; padding: 10px; text-align: center; width: 95%; margin: 0 auto; font-size: 0.9em;">
+            <b style="color: #d9534f;">⚠️ ERROR: Could not collect CPU load metrics.</b>
+          </div>
+          <br>

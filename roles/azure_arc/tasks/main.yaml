@@ -1,0 +1,11 @@
+# roles/azure_arc/tasks/main.yaml
+
+---
+- name: Include installation tasks
+  ansible.builtin.include_tasks: installation/main.yaml
+  when: INSTALL_AZURE_ARC_AGENT | default(false)
+
+- name: Include removing tasks
+  ansible.builtin.include_tasks: remove/main.yaml
+  when: REMOVE_AZURE_ARC_AGENT | default(false)
+

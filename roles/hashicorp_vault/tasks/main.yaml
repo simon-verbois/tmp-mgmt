@@ -1,0 +1,5 @@
+# roles/hashicorp_vault/tasks/main.yaml
+
+---
+- ansible.builtin.include_tasks: unsealing/00_main.yaml
+  when: HASHICORP_VAULT_UNSEAL | default(false)

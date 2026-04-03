@@ -1,0 +1,29 @@
+# roles/setup_nnt/tasks/update/main.yaml
+
+---
+- name: Make sure the service is stopped
+  ansible.builtin.service:
+    state: stopped
+    name: "{{ __nnt_service }}"
+
+- name: Install nnt-changetracker-gen7agent
+  ansible.builtin.dnf:
+    name: "{{ __nnt_package }}"
+    disable_gpg_check: true
+    state: latest
+    update_cache: true
+  when: ansible_facts['distribution_major_version'] | int >= 8
+
+- name: Install nnt-changetracker-gen7agent
+  ansible.builtin.yum:
+    name: "{{ __nnt_package }}"
+    state: latest
+    disable_gpg_check: true
+    update_cache: true
+  when: ansible_facts['distribution_major_version'] == "7"
+
+- name: Start back and ensure nntgen7agent service is enabled
+  ansible.builtin.service:
+    name: "{{ __nnt_service }}"
+    enabled: true
+    state: started

@@ -1,0 +1,73 @@
+# roles/tools/tasks/server_extend_lvm_volume/checks/gather_lvm_info.yaml
+
+---
+- name: "GATHER | Collect LVM topology and filesystem info for {{ target_path }}"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+
+      if ! mountpoint -q "{{ target_path }}"; then
+        echo '{"error": "Path {{ target_path }} is not a dedicated mountpoint."}'
+        exit 1
+      fi
+
+      LV_DEV=$(df -P "{{ target_path }}" | awk 'NR==2 {print $1}')
+
+      LV_NAME=$(lvs --noheadings -o lv_name "$LV_DEV" 2>/dev/null | tr -d ' ' || true)
+      VG_NAME=$(lvs --noheadings -o vg_name "$LV_DEV" 2>/dev/null | tr -d ' ' || true)
+
+      if [ -z "$VG_NAME" ]; then
+        echo '{"error": "Device '"$LV_DEV"' is not an LVM volume."}'
+        exit 1
+      fi
+
+      PV_DEV=$(vgs --noheadings -o pv_name "$VG_NAME" 2>/dev/null | awk 'NR==1 {print $1}' | tr -d ' ')
+      VG_FREE_BYTES=$(vgs --noheadings -o vg_free --units b --nosuffix "$VG_NAME" 2>/dev/null | tr -d ' ')
+      VG_SIZE_BYTES=$(vgs --noheadings -o vg_size --units b --nosuffix "$VG_NAME" 2>/dev/null | tr -d ' ')
+      FS_TYPE=$(df -T "{{ target_path }}" | awk 'NR==2 {print $2}')
+      FS_SIZE=$(df -h "{{ target_path }}" | awk 'NR==2 {print $2}')
+      FS_USED=$(df -h "{{ target_path }}" | awk 'NR==2 {print $3}')
+      FS_AVAIL=$(df -h "{{ target_path }}" | awk 'NR==2 {print $4}')
+      FS_USE_PCT=$(df -h "{{ target_path }}" | awk 'NR==2 {print $5}')
+
+      BASE_DISK=$(lsblk -ndo pkname "$PV_DEV" 2>/dev/null | tr -d ' ')
+      if [ -z "$BASE_DISK" ]; then
+        BASE_DISK=$(basename "$PV_DEV")
+      fi
+      DISK_SIZE_BYTES=$(lsblk -b -ndo SIZE "/dev/$BASE_DISK" 2>/dev/null | tr -d ' ')
+
+      cat <<EOF
+      {
+        "lv_device": "$LV_DEV",
+        "lv_name": "$LV_NAME",
+        "vg_name": "$VG_NAME",
+        "vg_free_bytes": "$VG_FREE_BYTES",
+        "vg_size_bytes": "$VG_SIZE_BYTES",
+        "pv_device": "$PV_DEV",
+        "base_disk": "$BASE_DISK",
+        "disk_size_bytes": "$DISK_SIZE_BYTES",
+        "fs_type": "$FS_TYPE",
+        "fs_size": "$FS_SIZE",
+        "fs_used": "$FS_USED",
+        "fs_avail": "$FS_AVAIL",
+        "fs_use_pct": "$FS_USE_PCT"
+      }
+      EOF
+  become: true
+  register: lvm_info_raw
+  changed_when: false
+
+- name: "GATHER | Parse LVM info"
+  ansible.builtin.set_fact:
+    lvm_info: "{{ lvm_info_raw.stdout | from_json }}"
+
+- name: "GATHER | Fail if discovery returned an error"
+  ansible.builtin.fail:
+    msg: "{{ lvm_info.error }}"
+  when: lvm_info.error is defined
+
+- name: "GATHER | Validate filesystem type supports online resize"
+  ansible.builtin.assert:
+    that:
+      - lvm_info.fs_type in ['xfs', 'ext4', 'ext3']
+    fail_msg: "Filesystem type '{{ lvm_info.fs_type }}' is not supported for online extension."

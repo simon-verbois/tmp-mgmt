@@ -1,0 +1,11 @@
+# roles/setup_nnt/tasks/main.yaml
+
+---
+- ansible.builtin.include_tasks: install_agent/main.yaml
+  when: NNT_INSTALL_AGENT | default(false)
+
+- ansible.builtin.include_tasks: remove_agent/main.yaml
+  when: NNT_REMOVE_AGENT | default(false)
+
+- ansible.builtin.include_tasks: update_agent/main.yaml
+  when: NNT_UPDATE_AGENT | default(false)

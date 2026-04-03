@@ -1,0 +1,19 @@
+---
+- name: Maintenance - Extend a LVM volume of a server (extend disk if needed)
+  hosts: all
+  gather_facts: true
+  become: true
+
+# Usage
+# Step 1 - dry-run (no auth_token = automatic dry-run)
+# ansible-playbook playbooks/tools/maintenance/server_extend_lvm_volume.yaml -i sv-1365lvp72.rh.jao.local, -e "target_path=/opt/jao requested_add_size_gb=10"
+
+# Step 2 - apply the change
+# ansible-playbook playbooks/tools/maintenance/server_extend_lvm_volume.yaml -i sv-1365lvp72.rh.jao.local, -e "auth_token=XXXXX target_path=/opt/jao requested_add_size_gb=10"
+
+  vars:
+    EXTEND_VOLUME: true
+
+  roles:
+    - common
+    - tools

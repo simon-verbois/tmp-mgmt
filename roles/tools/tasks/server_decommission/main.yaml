@@ -1,0 +1,56 @@
+# roles/tools/tasks/server_decommission/main.yaml
+
+---
+- name: MAIN | Load server_decommission vars
+  ansible.builtin.include_vars:
+    file: "server_decommission.yaml"
+
+- name: "MAIN | Add Royal TS header in result mail" 
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ __mail_header }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.5em;">Royal TS (manual step)</b>
+      </div>
+      <i>Delete this entry on Royal TS.</i><br>
+      <b>• {{ inventory_hostname_short }}</b><br>
+
+- name: MAIN | Get {{ inventory_hostname }} IP
+  delegate_to: localhost
+  ansible.builtin.shell: "dig {{ inventory_hostname }} +short"
+  register: server_ip
+
+- name: "MAIN | Include all sub tasks"
+  block:
+  - name: MAIN | Include gitlab tasks
+    ansible.builtin.include_tasks: gitlab/main.yaml
+
+  - name: MAIN | Include ipa tasks
+    ansible.builtin.include_tasks: ipa/main.yaml
+
+  - name: MAIN | Include satellite tasks
+    ansible.builtin.include_tasks: satellite/main.yaml
+
+  - name: MAIN | Include vCenter tasks
+    ansible.builtin.include_tasks: vcenter/main.yaml
+
+  always:
+  - name: "MAIN | Send decommission result by mail"
+    run_once: true
+    become: false
+    delegate_to: localhost
+    community.general.mail:
+      host: "localhost"
+      port: "25"
+      sender: "{{ __mail_from }}"
+      to: "{{ mail_recipient }}"
+      subject: "{{ __mail_subject }}"
+      body: "{{ mail_content }}"
+      charset: utf8
+      subtype: html
+    loop: "{{ __mail_to }}" 
+    loop_control:
+      loop_var: mail_recipient
+    when: mail_content | length > 0

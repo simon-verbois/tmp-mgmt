@@ -1,0 +1,67 @@
+# roles/automation/tasks/sync_git_client_repo_to_aap/processing/cleanup_ghosts.yaml
+
+---
+- name: "CLEANUP | List all existing Tower Inventories matching naming convention"
+  delegate_to: localhost
+  ansible.builtin.uri:
+    url: "https://{{ __tower_https_url | regex_replace('^https?://', '') | regex_replace('/$', '') }}/api/v2/inventories/?name__startswith=[LAF-CLIENT]&page_size=10000"
+    method: GET
+    user: "{{ __tower_svc_user }}"
+    password: "{{ __tower_svc_token }}"
+    force_basic_auth: yes
+    validate_certs: no
+    status_code: 200
+  register: all_tower_inventories
+
+- name: "CLEANUP | Delete Obsolete Inventories"
+  delegate_to: localhost
+  ansible.controller.inventory:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    
+    name: "{{ item.name }}"
+    organization: "Linux"
+    state: absent
+  loop: "{{ all_tower_inventories.json.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in valid_tower_inventories
+
+
+# ==============================================================================
+# NETTOYAGE DES PROJETS
+# ==============================================================================
+
+- name: "CLEANUP | Build list of valid Project Names from GitLab data"
+  ansible.builtin.set_fact:
+    valid_tower_projects: "{{ gitlab_repositories_list | map(attribute='name') | map('regex_replace', '^', '[LAF-CLIENT] ') | list }}"
+
+- name: "CLEANUP | List all existing Tower Projects matching naming convention"
+  delegate_to: localhost
+  ansible.builtin.uri:
+    url: "https://{{ __tower_https_url | regex_replace('^https?://', '') | regex_replace('/$', '') }}/api/v2/projects/?name__startswith=[LAF-CLIENT]&page_size=10000"
+    method: GET
+    user: "{{ __tower_svc_user }}"
+    password: "{{ __tower_svc_token }}"
+    force_basic_auth: yes
+    validate_certs: no
+    status_code: 200
+  register: all_tower_projects
+
+- name: "CLEANUP | Delete Obsolete Projects"
+  delegate_to: localhost
+  ansible.controller.project:
+    controller_host: "{{ __tower_https_url }}"
+    controller_username: "{{ __tower_svc_user }}"
+    controller_password: "{{ __tower_svc_token }}"
+    validate_certs: no
+    
+    name: "{{ item.name }}"
+    organization: "Linux"
+    state: absent
+  loop: "{{ all_tower_projects.json.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in valid_tower_projects

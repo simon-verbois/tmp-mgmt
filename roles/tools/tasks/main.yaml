@@ -1,0 +1,54 @@
+# roles/tools/tasks/main.yaml
+
+---
+- name: Include server_pre_decom_shutdown
+  ansible.builtin.include_tasks: server_pre_decom_shutdown/main.yaml
+  when: PRE_DECOM_SHUTDOWN | default(false)
+
+- name: Include server_pre_decom_restart
+  ansible.builtin.include_tasks: server_pre_decom_restart/main.yaml
+  when: PRE_DECOM_RESTART | default(false)
+
+- name: Include server_tweaks
+  ansible.builtin.include_tasks: server_tweaks/main.yaml
+  when: SERVER_TWEAKS | default(false)
+
+- name: Include rpm_db_fix
+  ansible.builtin.include_tasks: rpm_db_fix/main.yaml
+  when: RPM_DB_FIX | default(false)
+
+- name: Include clean_sssd_cache
+  ansible.builtin.include_tasks: clean_sssd_cache/main.yaml
+  when: CLEAN_SSSD_CACHE | default(false)
+
+- name: Include server_diagnostic
+  ansible.builtin.include_tasks: server_diagnostic/main.yaml
+  when: SERVER_DIAGNOSTIC | default(false)
+
+- name: Include server_decommission
+  ansible.builtin.include_tasks: server_decommission/main.yaml
+  when: SERVER_DECOMMISSION | default(false)
+
+- name: Include server_manual_patching
+  ansible.builtin.include_tasks: server_manual_patching/main.yaml
+  when: MANUAL_PATCHING | default(false)
+
+- name: Include server_extend_lvm_volume
+  ansible.builtin.include_tasks: server_extend_lvm_volume/main.yaml
+  when: EXTEND_VOLUME | default(false)
+
+- name: Include server_add_cpu
+  ansible.builtin.include_tasks: server_add_cpu/main.yaml
+  when: ADD_CPU | default(false)
+
+- name: Include server_add_memory
+  ansible.builtin.include_tasks: server_add_memory/main.yaml
+  when: ADD_MEMORY | default(false)
+
+- name: Include server_extend_swap
+  ansible.builtin.include_tasks: server_extend_swap/main.yaml
+  when: EXTEND_SWAP | default(false)
+
+- name: Include server_update_crypto_policies
+  ansible.builtin.include_tasks: server_update_crypto_policies/main.yaml
+  when: UPDATE_CRYPTO_POLICIES | default(false)

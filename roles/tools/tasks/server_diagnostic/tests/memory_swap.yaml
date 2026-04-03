@@ -1,0 +1,197 @@
+# roles/tools/tasks/server_diagnostic/tests/memory_swap.yaml
+
+---
+- name: "Add Memory header"
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <br>
+      <br>
+      <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+        <b style="font-size: 1.3em;">Memory & Swap</b>
+      </div>
+
+- block:
+    - name: Collect memory usage
+      ansible.builtin.shell: free -m
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: free_result
+
+    - name: Get top 5 process by Memory usage
+      ansible.builtin.shell: |
+        ps -e --sort=-%mem -o pid= | head -n 5 | while read pid; do
+          pid=$(echo $pid | xargs)
+          if [ -n "$pid" ] && [ -f /proc/$pid/status ]; then
+              user=$(ps -p $pid -o user=)
+              cpu=$(ps -p $pid -o %cpu=)
+              mem=$(ps -p $pid -o %mem=)
+              time=$(ps -p $pid -o time=)
+              unit=$(ps -p $pid -o unit=)
+              comm=$(ps -p $pid -o comm=)
+              if [[ "$unit" =~ \.scope$ ]]; then unit="User Session / Script"; fi
+              [ -z "$unit" ] && unit="-"
+              echo "$pid;$user;$cpu;$mem;$time;$comm;$unit"
+          fi
+        done
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: top_5_mem_usage
+      ignore_errors: true
+
+    - name: Get top 5 process by SWAP usage
+      ansible.builtin.shell: |
+        ps -e -o pid= | while read pid; do
+          if [ -f /proc/$pid/status ]; then
+            swap=$(awk '/VmSwap/ {print $2}' /proc/$pid/status 2>/dev/null)
+            if [[ "$swap" =~ ^[0-9]+$ ]] && [ "$swap" -gt 0 ]; then
+                user=$(ps -p $pid -o user=)
+                unit=$(ps -p $pid -o unit=)
+                comm=$(ps -p $pid -o comm=)
+                if [[ "$unit" =~ \.scope$ ]]; then unit="User Session / Script"; fi
+                [ -z "$unit" ] && unit="-"
+                echo "$swap;$pid;$user;$unit;$comm"
+            fi
+          fi
+        done | sort -t';' -k1 -nr | head -n 5 | awk -F';' '{printf "%s;%s;%.2f MB;%s;%s\n", $2, $3, $1/1024, $5, $4}'
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: top_5_swap_usage
+      ignore_errors: true
+
+    - name: Parse memory metrics
+      ansible.builtin.set_fact:
+        mem_total: "{{ (free_result.stdout_lines[1].split() | list)[1] }}"
+        mem_available: "{{ (free_result.stdout_lines[1].split() | list)[6] }}"
+        swap_total: "{{ (free_result.stdout_lines[2].split() | list)[1] }}"
+        swap_used: "{{ (free_result.stdout_lines[2].split() | list)[2] }}"
+        swap_free: "{{ (free_result.stdout_lines[2].split() | list)[3] }}"
+
+    - name: Calculate extended metrics
+      ansible.builtin.set_fact:
+        mem_usage_pct: "{{ (((mem_total | float - mem_available | float) / mem_total | float) * 100) | round(2) }}"
+        swap_usage_pct: "{{ ((swap_used | float / swap_total | float * 100) if swap_total | float > 0 else 0) | round(2) }}"
+        swap_ratio: "{{ (swap_used | float / mem_available | float) if mem_available | float > 0 else 0 }}"
+
+    - name: Determine Responsibility Message
+      ansible.builtin.set_fact:
+        top_process_name: "{{ (top_5_mem_usage.stdout_lines[0].split(';'))[5] if top_5_mem_usage.stdout_lines | length > 0 else 'unknown' }}"
+      
+    - name: Set Responsibility Label
+      ansible.builtin.set_fact:
+        resp_message: >-
+          {% if top_process_name in __rhel_services_list %}
+          <b style="color: #333;">Responsibility:</b> Managed (ict-linux)
+          {% elif top_process_name in __rhel_shared_services_list %}
+          <b style="color: #333;">Responsibility:</b> Shared Responsibility - Refer to <a href="https://portal.trustedcloudeurope.com/kb_view.do?sysparm_article=KB0013188" style="color: #337ab7;">KB0013188</a>
+          {% else %}
+          <b style="color: #333;">Responsibility:</b> Client Service/Application
+          {% endif %}
+
+    - name: Determine Memory Status
+      ansible.builtin.set_fact:
+        is_mem_critical: "{{ swap_used | float > 1024 and swap_ratio | float > 0.8 }}"
+        is_mem_warning: "{{ swap_used | float > 1024 and swap_ratio | float > 0.5 and swap_ratio | float <= 0.8 }}"
+
+    - name: Define status properties
+      ansible.builtin.set_fact:
+        status_color: "{{ '#d9534f' if is_mem_critical else ('#f0ad4e' if is_mem_warning else '#5cb85c') }}"
+        status_label: "{{ 'CRITICAL' if is_mem_critical else ('WARNING' if is_mem_warning else 'OK') }}"
+        status_message: >-
+          {{ 'Critical swap-to-Memory pressure detected.' if is_mem_critical 
+             else ('Moderate swap usage detected.' if is_mem_warning 
+             else 'Memory and Swap levels are within healthy parameters.') }}
+
+    - name: Add Memory Status Summary Box
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid {{ status_color }}; padding: 10px; border-radius: 5px; background-color: {{ status_color }}05; margin: 0 auto 15px auto; width: 95%; font-size: 0.9em; font-family: sans-serif;">
+            <div style="text-align: center; margin-bottom: 8px;">
+              <b style="font-size: 1.1em; color: {{ status_color }}; text-transform: uppercase;">Status: {{ status_label }}</b><br>
+              <span style="color: #555;">{{ status_message }}</span><br>
+              <span style="font-size: 0.9em; color: #666;">{{ resp_message }}</span>
+            </div>
+            
+            <div style="margin-bottom: 8px; padding: 5px 10px; border-radius: 3px;">
+              <b style="font-size: 0.85em; color: #333;">Support Checklist:</b><br>
+              <span style="font-size: 0.85em;">
+                {{ '❌' if mem_usage_pct | float > 90 else '✅' }} Memory Usage ({{ mem_usage_pct }}%)<br>
+                {{ '❌' if is_mem_critical or is_mem_warning else '✅' }} Swap/Memory Pressure Ratio ({{ swap_ratio | float | round(2) }})<br>
+                {{ '❌' if swap_usage_pct | float > 80 else '✅' }} Swap Fill Rate ({{ swap_usage_pct }}%)
+              </span>
+            </div>
+
+            <div style="border-top: 1px dashed #ccc; padding-top: 5px; font-size: 0.8em; color: #666; text-align: center;">
+              <b>Total Memory:</b> {{ mem_total }} MB - 
+              <b>Available:</b> {{ mem_available }} MB | 
+              <b>Total Swap:</b> {{ swap_total }} MB - 
+              <b>Available:</b> {{ swap_free }} MB
+            </div>
+          </div>
+
+    - name: Fill mail content with top 5 Memory
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <table>
+            <tr style="background-color: #e0e0e0;">
+              <th colspan="7" style="padding: 10px; border: 1px solid #ccc; text-align: center; font-size: 1.1em;">Top 5 Memory usage</th>
+            </tr>
+            <tr style="background-color: #f5f5f5; font-size: 0.9em;">
+              <th>PID</th>
+              <th>USER</th>
+              <th>CPU%</th>
+              <th>MEM%</th>
+              <th>TIME</th>
+              <th>COMMAND</th>
+              <th>SERVICE</th>
+            </tr>
+            {% for line in top_5_mem_usage.stdout_lines %}
+            <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
+              {% for word in line.split(';') %}
+                <td style="padding: 8px; border: 1px solid #eee;">{{ word }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </table>
+
+    - name: Fill mail content with top 5 SWAP
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <table>
+            <tr style="background-color: #e0e0e0;">
+              <th colspan="5" style="padding: 10px; border: 1px solid #ccc; text-align: center; font-size: 1.1em;">Top 5 SWAP usage</th>
+            </tr>
+            {% if top_5_swap_usage.stdout_lines | length > 0 %}
+            <tr style="background-color: #f5f5f5; font-size: 0.9em;">
+              <th>PID</th>
+              <th>USER</th>
+              <th>SWAP</th>
+              <th>COMMAND</th>
+              <th>SERVICE</th>
+            </tr>
+            {% for line in top_5_swap_usage.stdout_lines %}
+            <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
+              {% for word in line.split(';') %}
+                <td style="padding: 8px; border: 1px solid #eee;">{{ word }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="5" style="padding: 15px; text-align: center; color: #666; background-color: #ffffff;">No swap usage detected on this system.</td>
+            </tr>
+            {% endif %}
+          </table>
+
+  rescue:
+    - name: Add memory informations to the mail content (fallback)
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <div style="border: 1px solid #d9534f; padding: 10px; text-align: center; width: 95%; margin: 0 auto; font-size: 0.9em;">
+            <b style="color: #d9534f;">⚠️ ERROR: Could not collect Memory/Swap metrics.</b>
+          </div>
+          <br>
