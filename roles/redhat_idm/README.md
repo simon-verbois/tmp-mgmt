@@ -191,16 +191,15 @@ When a user account is deleted via `enable_user_deletion`, the deletion email au
 
 Before deleting, the role fetches the account's full data from IPA (firstname, lastname, email, groups, POSIX UID, service account flag) using session cookie authentication. The recreation command is then embedded directly in the deletion email.
 
-**Example recreation command included in the email:**
+**Example value included in the email (paste directly into `data_prompted`) :**
 
 ```
-enable_user_creation=true __clients_id_prompted='1141' usernames='jdoe'
-  user_firstname='John' user_lastname='Doe'
-  user_mail='jdoe@example.com' user_groups='linux,monitoring'
-  user_uidnumber='158432'
+jdoe;John;Doe;jdoe@example.com;linux,monitoring;158432
 ```
 
-Copy-paste this string as survey variables in a new `enable_user_creation` job to recreate the account with the exact same POSIX UID, groups, and email.
+Format: `username;firstname;lastname;mail;groups;uidnumber` (uidnumber optional — omitted if not found)
+
+Trigger the recreation by launching `enable_user_creation` with `__clients_id_prompted` set and this line in `data_prompted`. The account will be recreated with the same POSIX UID, groups, and email. If the user was a service account (member of `maxlife`), it is auto-detected from the groups field.
 
 **Behaviour in edge cases:**
 
@@ -208,8 +207,8 @@ Copy-paste this string as survey variables in a new `enable_user_creation` job t
 |---|---|
 | Account not found before deletion | No recreation command in the email |
 | Email absent in IPA | `__user_mail` omitted from the command |
-| No group membership | `user_groups` omitted from the command |
-| Service account (password expiration year 2222) | `user_service_account=true` added |
+| No group membership | groups field left empty in the `data_prompted` line |
+| Service account (member of `maxlife`) | `maxlife` is included in the groups field — auto-detected on recreation |
 | IPA unreachable during fetch | Recreation command silently omitted — deletion continues normally |
 
 **Preserving the POSIX UID (`__user_uidnumber`):**

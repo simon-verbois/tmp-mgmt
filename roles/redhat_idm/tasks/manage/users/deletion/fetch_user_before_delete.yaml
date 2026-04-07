@@ -32,7 +32,7 @@
   changed_when: false
   failed_when: false
 
-- name: "Parse user data and build recreation command"
+- name: "Parse user data and build data_prompted recreation line"
   ansible.builtin.set_fact:
     recreation_command: >-
       {%- set raw = user_show_raw.stdout | default('') -%}
@@ -45,15 +45,8 @@
           {%- set mail = u.get('mail', [''])[0] -%}
           {%- set groups = u.get('memberof_group', []) | join(',') -%}
           {%- set uid = u.get('uidnumber', [''])[0] | string -%}
-          {%- set krbexp = u.get('krbpasswordexpiration', []) -%}
-          {%- set svc = krbexp | length > 0 and krbexp[0].get('__datetime__', '') | string | truncate(4, true, '') == '2222' -%}
-          enable_user_creation=true __clients_id_prompted='{{ client_id }}' usernames='{{ username }}'
-          {%- if fn %} user_firstname='{{ fn }}'{% endif %}
-          {%- if ln %} user_lastname='{{ ln }}'{% endif %}
-          {%- if mail %} user_mail='{{ mail }}'{% endif %}
-          {%- if groups %} user_groups='{{ groups }}'{% endif %}
-          {%- if uid %} user_uidnumber='{{ uid }}'{% endif %}
-          {%- if svc %} user_service_account=true{% endif %}
+          {{ username }};{{ fn }};{{ ln }};{{ mail }};{{ groups }}
+          {%- if uid %};{{ uid }}{% endif %}
         {%- else -%}
           -
         {%- endif -%}

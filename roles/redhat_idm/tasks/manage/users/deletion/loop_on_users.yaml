@@ -16,7 +16,7 @@
     mail_content: |
       {{ mail_content }}
       <div style="border: 1px solid #ccc; padding: 8px; border-radius: 4px; background-color: #f9f9f9; margin: 5px 0;">
-        <b>Recréation de {{ username }} :</b><br>
+        <b>Recréation de {{ username }}</b> — collez la ligne suivante dans le champ <code>data_prompted</code> :<br>
         <pre style="background-color: #f0f0f0; padding: 8px; border: 1px solid #ccc; font-size: 0.9em;">{{ recreation_command }}</pre>
       </div>
   when:

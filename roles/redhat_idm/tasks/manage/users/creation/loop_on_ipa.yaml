@@ -40,8 +40,8 @@
                     'groups': fields[4],
                     'homefolder': ipa_default_homedir + '/' + fields[0],
                     'shell': ipa_default_shell,
-                    'service_account': user_service_account | default(false) | bool,
-                    'uidnumber': ''
+                    'service_account': 'maxlife' in (fields[4].split(',') | map('trim') | list),
+                    'uidnumber': fields[5] | trim if fields | length > 5 and fields[5] | trim | length > 0 else ''
                   }
                 }) -%}
               {%- endif -%}
