@@ -1,0 +1,141 @@
+# roles/elastic_agent/tasks/install.yaml
+
+---
+# ── Setup working dir sur le controller ──────────────────────────────────────
+- name: "Define unique working directory"
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.set_fact:
+    working_dir: "/opt/ebrc/all/projects/linux-automation-framework/{{ lookup('pipe', 'uuidgen') }}"
+
+- name: "Create working directory {{ working_dir }}"
+  run_once: true
+  delegate_to: tower.csv.local
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    state: directory
+    mode: "0777"
+
+- block:
+    # ── CHECK 1 : agent déjà présent ? ────────────────────────────────────────
+    - name: "Gather package facts"
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: "Gather service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Skip host if Elastic Agent already present"
+      block:
+        - name: "Display presence details"
+          ansible.builtin.debug:
+            msg: |
+              INFO: Elastic Agent already present — skipping host.
+              Package installed: {{ 'YES' if 'elastic-agent' in ansible_facts.packages else 'NO' }}
+              Service detected: {{ 'YES' if 'elastic-agent.service' in ansible_facts.services else 'NO' }}
+        - name: "Stop execution on this host"
+          ansible.builtin.meta: end_host
+      when: >
+        'elastic-agent' in ansible_facts.packages or
+        'elastic-agent.service' in ansible_facts.services
+
+    # ── CHECK 2 : fichier service systemd ────────────────────────────────────
+    - name: "Stat elastic-agent.service systemd file"
+      ansible.builtin.stat:
+        path: /etc/systemd/system/elastic-agent.service
+      register: _service_file
+
+    - name: "Fail if service file already exists (Fleet-managed deployment)"
+      ansible.builtin.fail:
+        msg: "The elastic-agent service file already exists — cannot upgrade a Fleet-managed deployment."
+      when: _service_file.stat.exists
+
+    # ── CHECK 3 : proxy ───────────────────────────────────────────────────────
+    - name: "Verify proxy connectivity to Fleet URL"
+      when: __elastic_proxy_url is defined
+      block:
+        - name: "Attempt to reach Fleet URL via proxy"
+          ansible.builtin.uri:
+            url: "{{ __elastic_console_url }}"
+            method: GET
+            validate_certs: false
+            status_code: 404
+          environment:
+            https_proxy: "{{ __elastic_proxy_url }}"
+          register: _fleet_check
+          ignore_errors: true
+
+        - name: "Assert Fleet URL is reachable (expecting 404)"
+          ansible.builtin.assert:
+            that: _fleet_check.status == 404
+            fail_msg: "Proxy check failed — status {{ _fleet_check.status | default('N/A') }}. Error: {{ _fleet_check.msg | default('N/A') }}"
+            success_msg: "Proxy OK — {{ __elastic_console_url }} is reachable."
+
+    # ── CHECK 4 : storage + LVM ───────────────────────────────────────────────
+    - ansible.builtin.include_tasks: storage.yaml
+
+    # ── Installation ──────────────────────────────────────────────────────────
+    - name: "Ensure rsync is installed"
+      ansible.builtin.package:
+        name: rsync
+        state: present
+
+    - name: "Download {{ __elastic_agent_tarball }} to controller"
+      run_once: true
+      delegate_to: tower.csv.local
+      ansible.builtin.get_url:
+        url: "{{ __internal_depot_url }}/{{ __elastic_agent_tarball }}"
+        dest: "{{ working_dir }}/{{ __elastic_agent_tarball }}"
+        mode: "0644"
+
+    - name: "Sync {{ __elastic_agent_tarball }} to targets (rsync)"
+      ansible.posix.synchronize:
+        src: "{{ working_dir }}/{{ __elastic_agent_tarball }}"
+        dest: "{{ __tmp_elastic_directory }}/{{ __elastic_agent_tarball }}"
+
+    - name: "Unarchive {{ __elastic_agent_tarball }}"
+      ansible.builtin.unarchive:
+        src: "{{ __tmp_elastic_directory }}/{{ __elastic_agent_tarball }}"
+        dest: "{{ __tmp_elastic_directory }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+        extra_opts:
+          - --strip-components=1
+
+    - name: "Set proxy argument"
+      ansible.builtin.set_fact:
+        _proxy_arg: "{{ (__elastic_proxy_url is defined) | ternary('--proxy-url=' ~ __elastic_proxy_url, '') }}"
+
+    - name: "Enroll Elastic Agent with Fleet"
+      ansible.builtin.shell:
+        chdir: "{{ __tmp_elastic_directory }}"
+        cmd: >
+          ./elastic-agent install
+          --url={{ __elastic_console_url }}
+          --enrollment-token={{ __elastic_enrollment_token }}
+          {{ _proxy_arg }}
+          --insecure
+          --non-interactive
+      register: _install_result
+      changed_when: _install_result.rc == 0
+
+    - name: "Enable and start elastic-agent service"
+      ansible.builtin.systemd:
+        name: elastic-agent
+        state: started
+        enabled: true
+
+  always:
+    - name: "Cleanup working dir on controller"
+      delegate_to: tower.csv.local
+      ansible.builtin.file:
+        path: "{{ working_dir }}/"
+        state: absent
+        force: true
+
+    - name: "Cleanup {{ __tmp_elastic_directory }}"
+      ansible.builtin.file:
+        path: "{{ __tmp_elastic_directory }}"
+        state: absent

@@ -30,24 +30,6 @@
     - "/etc/yum.repos.d/splunkfw.repo"
     - "/opt/splunkforwarder/"
 
-- name: "Delete the {{ __splunkfw_user }} user"
-  ansible.builtin.user:
-    name: "{{ __splunkfw_user }}"
-    state: absent
-  register: _user_remove
-  failed_when:
-    - _user_remove.failed | default(false)
-    - "'does not exist' not in (_user_remove.msg | default(''))"
-
-- name: "Delete the {{ __splunkfw_group }} group"
-  ansible.builtin.group:
-    name: "{{ __splunkfw_group }}"
-    state: absent
-  register: _group_remove
-  failed_when:
-    - _group_remove.failed | default(false)
-    - "'does not exist' not in (_group_remove.msg | default(''))"
-
 - name: Reload systemd daemon
   become: true
   ansible.builtin.systemd:

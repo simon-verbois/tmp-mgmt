@@ -1,0 +1,250 @@
+# roles/elastic_agent/tasks/storage.yaml
+#
+# Provisionnement du stockage pour Elastic Agent :
+#
+#   Cas 1 — vg_data existe et a assez d'espace → création LV directe
+#   Cas 2 — vg_data existe mais manque d'espace → extend disque vCenter → pvresize → création LV
+#   Cas 3 — vg_data absent → ajout nouveau disque vCenter → pvcreate/vgcreate → création LV
+
+---
+# ── Gather facts ──────────────────────────────────────────────────────────────
+- name: "Gather mount and LVM facts"
+  ansible.builtin.setup:
+    gather_subset:
+      - hardware
+      - mounts
+
+- name: "Check if {{ __elastic_mount_path }} is already mounted"
+  ansible.builtin.set_fact:
+    _elastic_mounted: >-
+      {{ ansible_mounts
+         | selectattr('mount', 'equalto', __elastic_mount_path)
+         | list | length > 0 }}
+
+- name: "Storage provisioning for {{ __elastic_mount_path }}"
+  when: not _elastic_mounted
+  block:
+    - name: "Ensure {{ __elastic_mount_path }} directory exists"
+      ansible.builtin.file:
+        path: "{{ __elastic_mount_path }}"
+        state: directory
+        mode: "0755"
+
+    # ── Cas 3 : vg_data absent → nouveau disque vCenter ──────────────────────
+    - name: "Add new vCenter disk and create {{ __elastic_vg_name }} (if VG absent)"
+      when: __elastic_vg_name not in (ansible_lvm.vgs | default({}))
+      block:
+        - name: "Reset vCenter state"
+          ansible.builtin.set_fact:
+            vcenter_action_done: false
+            lvm_info: {}
+            vcenter_disk_add_gb: 0
+            matched_vm_disks: []
+
+        - name: "Get VM disk info from vCenter"
+          ansible.builtin.include_tasks:
+            file: "../../tools/tasks/server_extend_lvm_volume/vcenter/main.yaml"
+          vars:
+            vcenter_action: "get_disk_info"
+
+        - name: "Fail if VM not found on any vCenter"
+          ansible.builtin.fail:
+            msg: "VM {{ inventory_hostname_short }} not found on any vCenter."
+          when: vm_disks_dict is not defined
+
+        # Récupère les specs du disque 0 (unit_number=0) pour les réutiliser sur le nouveau disque
+        - name: "Extract disk 0 specs for new disk provisioning"
+          ansible.builtin.set_fact:
+            _disk0: >-
+              {{ vm_disks_dict | dict2items
+                 | selectattr('value.unit_number', 'equalto', 0)
+                 | first }}
+
+        - name: "Add new {{ __elastic_new_disk_size_gb }}GB disk on VM via vCenter (same specs as disk 0)"
+          delegate_to: localhost
+          become: false
+          community.vmware.vmware_guest_disk:
+            hostname: "{{ vcenter_conn.hostname }}"
+            username: "{{ vcenter_conn.username }}"
+            password: "{{ vcenter_conn.password }}"
+            validate_certs: false
+            datacenter: "{{ vcenter_conn.datacenter }}"
+            uuid: "{{ vm_details.uuid }}"
+            disk:
+              - size_gb: "{{ __elastic_new_disk_size_gb }}"
+                type: "{{ 'thin' if _disk0.value.backing_thinprovisioned else 'thick' }}"
+                disk_mode: "{{ _disk0.value.backing_diskmode }}"
+                state: present
+                scsi_controller: "{{ _disk0.value.controller_bus_number }}"
+                unit_number: "{{ vm_disks_dict | dict2items | map(attribute='value.unit_number') | list | max + 1 }}"
+          register: _new_disk_result
+
+        - name: "Rescan SCSI bus to detect new disk"
+          ansible.builtin.shell: |
+            for host in /sys/class/scsi_host/host*; do echo "- - -" > "$host/scan"; done
+            sleep 3
+          changed_when: true
+
+        - name: "Find new disk device (raw disk, no partition)"
+          ansible.builtin.shell: |
+            lsblk -b -ndo NAME,SIZE | awk '$2 == {{ __elastic_new_disk_size_gb | int * 1073741824 }} {print "/dev/" $1}' | tail -1
+          register: _new_disk_dev
+          changed_when: false
+
+        - name: "Fail if new disk not detected after rescan"
+          ansible.builtin.fail:
+            msg: "New disk not detected after vCenter add and SCSI rescan."
+          when: _new_disk_dev.stdout | trim | length == 0
+
+        # PV créé directement sur le disque brut (/dev/sdc, pas /dev/sdc1)
+        - name: "Create PV and VG {{ __elastic_vg_name }} on {{ _new_disk_dev.stdout | trim }}"
+          community.general.lvg:
+            vg: "{{ __elastic_vg_name }}"
+            pvs: "{{ _new_disk_dev.stdout | trim }}"
+            state: present
+
+        - name: "Refresh LVM facts after VG creation"
+          ansible.builtin.setup:
+            gather_subset:
+              - hardware
+
+    # ── Cas 2 : vg_data existe mais manque d'espace → extend vCenter ─────────
+    - name: "Extend {{ __elastic_vg_name }} via vCenter if not enough free space"
+      when:
+        - __elastic_vg_name in (ansible_lvm.vgs | default({}))
+        - ansible_lvm.vgs[__elastic_vg_name].free_g | float < __elastic_lv_size_gb | float + 1
+      block:
+        - name: "Calculate how much GB to add to vCenter disk"
+          ansible.builtin.set_fact:
+            _vcenter_add_gb: >-
+              {{ ((__elastic_lv_size_gb | float + 1) - ansible_lvm.vgs[__elastic_vg_name].free_g | float)
+                 | round(0, 'ceil') | int }}
+
+        - name: "Get PV device backing {{ __elastic_vg_name }}"
+          ansible.builtin.shell: "vgs --noheadings -o pv_name {{ __elastic_vg_name }} | awk 'NR==1{print $1}'"
+          register: _pv_device
+          changed_when: false
+
+        - name: "Get base disk from PV"
+          ansible.builtin.shell: "lsblk -ndo pkname {{ _pv_device.stdout | trim }}"
+          register: _base_disk
+          changed_when: false
+
+        - name: "Get base disk size in bytes"
+          ansible.builtin.shell: "lsblk -b -ndo SIZE /dev/{{ _base_disk.stdout | trim }}"
+          register: _disk_size_bytes
+          changed_when: false
+
+        # Construit lvm_info minimal pour réutiliser les tâches vcenter de server_extend_lvm_volume
+        - name: "Set lvm_info and vcenter vars for disk matching"
+          ansible.builtin.set_fact:
+            lvm_info:
+              base_disk: "{{ _base_disk.stdout | trim }}"
+              disk_size_bytes: "{{ _disk_size_bytes.stdout | trim }}"
+              pv_device: "{{ _pv_device.stdout | trim }}"
+            vcenter_disk_add_gb: "{{ _vcenter_add_gb | int }}"
+            vcenter_action_done: false
+            vm_disks_dict: ~
+            matched_vm_disks: []
+
+        - name: "Get vCenter disk info"
+          ansible.builtin.include_tasks:
+            file: "../../tools/tasks/server_extend_lvm_volume/vcenter/main.yaml"
+          vars:
+            vcenter_action: "get_disk_info"
+
+        - name: "Match vCenter disk to OS disk by size"
+          ansible.builtin.include_tasks:
+            file: "../../tools/tasks/server_extend_lvm_volume/checks/match_vcenter_disk.yaml"
+
+        - name: "Fail if vCenter disk match failed"
+          ansible.builtin.fail:
+            msg: "vCenter disk match failed: {{ vcenter_match_error }}"
+          when: vcenter_match_error is defined
+
+        - name: "Reset vCenter loop state before extend"
+          ansible.builtin.set_fact:
+            vcenter_action_done: false
+
+        - name: "Extend vCenter disk by {{ vcenter_disk_add_gb }} GB"
+          ansible.builtin.include_tasks:
+            file: "../../tools/tasks/server_extend_lvm_volume/vcenter/main.yaml"
+          vars:
+            vcenter_action: "extend_disk"
+
+        # Rescan OS + pvresize (même logique que server_extend_lvm_volume/host/extend_lvm.yaml)
+        - name: "Rescan disk, grow partition if needed, and pvresize"
+          ansible.builtin.shell: |
+            set -e
+            BASE_DISK="/dev/{{ lvm_info.base_disk }}"
+            PV_DEVICE="{{ lvm_info.pv_device }}"
+            echo 1 > /sys/class/block/{{ lvm_info.base_disk }}/device/rescan
+            sleep 2
+            if [ "$BASE_DISK" != "$PV_DEVICE" ]; then
+              PART_NUM=$(echo "$PV_DEVICE" | sed -e "s|$BASE_DISK||" -e "s|^p||")
+              parted -s "$BASE_DISK" resizepart "$PART_NUM" 100%
+              partprobe "$BASE_DISK"
+              sleep 2
+            fi
+            pvresize "$PV_DEVICE"
+          changed_when: true
+
+        - name: "Refresh LVM facts after pvresize"
+          ansible.builtin.setup:
+            gather_subset:
+              - hardware
+
+    # ── Cas 1, 2, 3 convergent ici → création LV + format + mount ───────────
+    - name: "Create LV {{ __elastic_lv_name }} ({{ __elastic_lv_size_gb }}G) on {{ __elastic_vg_name }}"
+      community.general.lvol:
+        vg: "{{ __elastic_vg_name }}"
+        lv: "{{ __elastic_lv_name }}"
+        size: "{{ __elastic_lv_size_gb }}G"
+
+    - name: "Format {{ __elastic_lv_name }} as XFS"
+      community.general.filesystem:
+        fstype: xfs
+        dev: "/dev/{{ __elastic_vg_name }}/{{ __elastic_lv_name }}"
+
+    - name: "Mount {{ __elastic_mount_path }}"
+      ansible.posix.mount:
+        path: "{{ __elastic_mount_path }}"
+        src: "/dev/{{ __elastic_vg_name }}/{{ __elastic_lv_name }}"
+        fstype: xfs
+        state: mounted
+
+    - name: "Refresh mount facts after mount"
+      ansible.builtin.setup:
+        gather_subset:
+          - mounts
+
+# ── Validation espace (après montage ou si déjà monté) ───────────────────────
+- name: "Get tarball size from depot (HEAD)"
+  ansible.builtin.uri:
+    url: "{{ __internal_depot_url }}/{{ __elastic_agent_tarball }}"
+    method: HEAD
+  register: _tarball_head
+
+- name: "Ensure {{ __tmp_elastic_directory }} exists"
+  ansible.builtin.file:
+    path: "{{ __tmp_elastic_directory }}"
+    state: directory
+
+- name: "Check available space on mount point and temp directory"
+  ansible.builtin.shell: "df -k {{ item }} --output=avail | tail -1"
+  register: _space_checks
+  changed_when: false
+  loop:
+    - "{{ __elastic_mount_path }}"
+    - "{{ __tmp_elastic_directory }}"
+
+- name: "Assert sufficient disk space"
+  ansible.builtin.assert:
+    that:
+      - (_space_checks.results[0].stdout | trim | int) > (_tarball_head.content_length | int * __elastic_install_space_multiplier | float / 1024)
+      - (_space_checks.results[1].stdout | trim | int) > (_tarball_head.content_length | int * __elastic_tmp_space_multiplier | float / 1024)
+    fail_msg: >-
+      Espace insuffisant.
+      {{ __elastic_mount_path }} nécessite ~{{ (_tarball_head.content_length | int * __elastic_install_space_multiplier | float / 1048576) | round(2) }} MB.
+      {{ __tmp_elastic_directory }} nécessite ~{{ (_tarball_head.content_length | int * __elastic_tmp_space_multiplier | float / 1048576) | round(2) }} MB.
+    success_msg: "Storage check passed."

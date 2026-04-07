@@ -1,0 +1,34 @@
+# roles/elastic_agent/tasks/remove.yaml
+
+---
+- name: "Run Elastic Agent uninstaller"
+  ansible.builtin.shell: "{{ __elastic_mount_path }}/Agent/elastic-agent uninstall --force"
+  ignore_errors: true
+
+- name: "Remove elastic-agent package"
+  ansible.builtin.package:
+    name: elastic-agent
+    state: absent
+
+- name: "Unmount {{ __elastic_mount_path }}"
+  ansible.posix.mount:
+    path: "{{ __elastic_mount_path }}"
+    state: absent
+  ignore_errors: true
+
+- name: "Remove LV {{ __elastic_lv_name }}"
+  community.general.lvol:
+    vg: "{{ __elastic_vg_name }}"
+    lv: "{{ __elastic_lv_name }}"
+    state: absent
+    force: true
+  ignore_errors: true
+
+- name: "Delete remaining files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/elastic-agent/
+    - "{{ __elastic_mount_path }}"
+    - "{{ __tmp_elastic_directory }}"
