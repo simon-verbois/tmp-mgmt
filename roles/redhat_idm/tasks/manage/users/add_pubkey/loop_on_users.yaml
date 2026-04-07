@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/add_pubkey/02_loop_on_users.yaml
+# roles/redhat_idm/tasks/manage/users/add_pubkey/loop_on_users.yaml
 
 ---
 - name: Determine target username (user or altusername)
@@ -25,14 +25,17 @@
 
 - name: Define status for {{ target_username }}
   ansible.builtin.set_fact:
-    current_status: >-
-      {% if item.pubkey is not defined %}SKIPPED_NO_KEY
-      {% elif ipa_result.failed | default(false) %}FAILED
-      {% elif ipa_result.changed %}CHANGED
+    pubkey_status: >-
+      {% if item.pubkey is not defined %}No key
+      {% elif ipa_result.failed | default(false) %}Error: {{ ipa_result.msg | default('Unknown error') | truncate(80) }}
+      {% elif ipa_result.changed %}Injected
       {% else %}OK{% endif %}
 
-- name: Append result to global report list
+- name: Append result to rows
   ansible.builtin.set_fact:
-    add_pubkey_report: "{{ add_pubkey_report | default([]) + [csv_line] }}"
+    result_rows: "{{ result_rows + [row] }}"
   vars:
-    csv_line: "{{ target_username }},{{ current_status | trim }},{{ ipa_server }}"
+    row:
+      username: "{{ target_username }}"
+      status: "{{ pubkey_status | trim }}"
+      ipa_server: "{{ ipa_server }}"

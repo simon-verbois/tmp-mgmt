@@ -1,10 +1,17 @@
-# roles/redhat_idm/tasks/manage/users/creation/01_loop_on_ipa.yaml
+# roles/redhat_idm/tasks/manage/users/creation/loop_on_ipa.yaml
 
 ---
+- name: Deploy manage XLSX script
+  delegate_to: localhost
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/generate_xlsx_manage.py"
+    dest: "{{ working_dir }}/generate_xlsx_manage.py"
+    mode: "0755"
+  run_once: true
+
 - block:
   - name: Parse user data into a dictionary
     ansible.builtin.set_fact:
-      csv_lines: "sep=,;Username,Password,Client ID,IPA Domain;"
       users_dict: >-
         {%- set result = {} -%}
 
@@ -44,7 +51,7 @@
             }) -%}
           {%- endif -%}
         {%- endif -%}
-        
+
         {{ result }}
 
   - name: Failed if users_dict is empty
@@ -67,20 +74,6 @@
       user_homefolder: "{{ user_infos.value.homefolder }}"
       user_shell: "{{ user_infos.value.shell }}"
       user_service_account: "{{ user_infos.value.service_account }}"
-
-  - name: "Create csv result file for {{ ipa_server }}"
-    ansible.builtin.lineinfile:
-      insertafter: EOF
-      create: true
-      dest: "{{ working_dir }}/ipa_create_users_{{ current_ipa.key }}_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.csv"
-      line: "{{ line }}"
-    loop: "{{ csv_lines | split(';') }}"
-    loop_control:
-      loop_var: line
-      label: "Sensitive data is hidden."
-    when:
-      - line != "" and csv_lines is defined
-      - user_creation_result is defined and not user_creation_result.failed
 
   rescue:
   - name: Fill mail_content with error message

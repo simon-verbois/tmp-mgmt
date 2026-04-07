@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/disabling/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/disabling/main.yaml
 
 ---
 - name: Define mail_subject var

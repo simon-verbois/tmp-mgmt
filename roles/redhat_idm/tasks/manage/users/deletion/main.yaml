@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/deletion/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/deletion/main.yaml
 
 ---
 - name: Define specific vars

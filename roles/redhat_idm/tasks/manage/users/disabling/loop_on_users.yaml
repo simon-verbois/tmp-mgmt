@@ -1,12 +1,15 @@
-# roles/redhat_idm/tasks/manage/users/disabling/02_loop_on_users.yaml
+# roles/redhat_idm/tasks/manage/users/disabling/loop_on_users.yaml
 
 ---
-- name: Inclure disable user tasks
+- name: Include disable user tasks
   ansible.builtin.include_tasks: disable_user.yaml
 
-- name: Append result data to csv
+- name: Append result to rows
   ansible.builtin.set_fact:
-    csv_lines: "{{ csv_lines }}{{ username }},\
-                {{ 'Disabled' if user_disabling_result.changed | default(false) else 'Doesn''t exist on this IPA' }},\
-                {{ client_id }},\
-                {{ ipa_domain }};"
+    result_rows: "{{ result_rows + [row] }}"
+  vars:
+    row:
+      username: "{{ username }}"
+      status: "{{ user_status }}"
+      client_id: "{{ client_id }}"
+      ipa_domain: "{{ ipa_domain }}"

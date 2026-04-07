@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/creation/02_loop_on_users.yaml
+# roles/redhat_idm/tasks/manage/users/creation/loop_on_users.yaml
 
 ---
 - name: Generate random password
@@ -20,14 +20,41 @@
 - ansible.builtin.include_tasks: create_user.yaml
 
 - ansible.builtin.include_tasks: add_to_group.yaml
-  loop: "{{ final_user_groups | replace(' ', ',') | split(',') }}"
+  loop: "{{ final_user_groups | regex_replace('[,\\s]+', ',') | split(',') | select | list }}"
   loop_control:
     loop_var: groupname
-  when: final_user_groups != ""
+  when: final_user_groups | trim != ""
 
-- name: Append result data to csv
-  ansible.builtin.set_fact:
-    csv_lines: "{{ csv_lines }}{{ username }},\
-                {{ generated_password }},\
-                {{ client_id }},\
-                {{ ipa_domain }};"
+- name: Save per-user result to JSON
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ working_dir }}/manage_creation_{{ current_ipa.key }}_{{ username }}.json"
+    content: "{{ payload | to_json }}"
+    mode: "0600"
+  no_log: true
+  vars:
+    payload:
+      operation: "creation"
+      meta:
+        client_id: "{{ client_id }}"
+        ipa_domain: "{{ ipa_domain }}"
+        ipa_server: "{{ ipa_server }}"
+        generated_at: "{{ now(fmt='%Y-%m-%d %H:%M:%S') }}"
+      rows:
+        - username: "{{ username }}"
+          firstname: "{{ user_firstname }}"
+          lastname: "{{ user_lastname }}"
+          email: "{{ user_mail }}"
+          groups: "{{ final_user_groups }}"
+          status: "{{ user_status }}"
+          password: "{{ generated_password }}"
+          client_id: "{{ client_id }}"
+          ipa_domain: "{{ ipa_domain }}"
+
+- name: Generate XLSX for {{ username }}
+  delegate_to: localhost
+  ansible.builtin.command: >-
+    python3 {{ working_dir }}/generate_xlsx_manage.py
+    {{ working_dir }}/manage_creation_{{ current_ipa.key }}_{{ username }}.json
+    {{ working_dir }}/ipa_creation_{{ current_ipa.key }}_{{ username }}_{{ now(fmt='%Y%m%d-%H%M') }}.xlsx
+  changed_when: true

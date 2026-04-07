@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/creation/03_create_user.yaml
+# roles/redhat_idm/tasks/manage/users/creation/create_user.yaml
 
 ---
 - block:
@@ -19,6 +19,10 @@
       ipaadmin_password: "{{ ipa_pass }}"
     register: user_creation_result
 
+  - name: Set user_status after creation
+    ansible.builtin.set_fact:
+      user_status: "{{ 'Created' if user_creation_result.changed else 'Already exists' }}"
+
   - name: Update mail_content based on creation status
     ansible.builtin.set_fact:
       mail_content: |
@@ -30,6 +34,10 @@
         {% endif %}
 
   rescue:
+  - name: Set user_status on creation error
+    ansible.builtin.set_fact:
+      user_status: "Error: {{ user_creation_result.msg | default(ansible_failed_result.msg | default('Unknown error')) | truncate(120) }}"
+
   - name: Fill mail_content with error message
     ansible.builtin.set_fact:
       mail_content: |-
@@ -38,5 +46,5 @@
         <br>
         Error message:<br>
           <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
-          {{ user_creation_result.msg | default(['No msg captured']) }}
+          {{ user_creation_result.msg | default(ansible_failed_result.msg | default('No msg captured')) }}
           </pre>

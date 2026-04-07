@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/add_group/04_add_to_group.yaml
+# roles/redhat_idm/tasks/manage/users/add_group/add_to_group.yaml
 
 ---
 - block:
@@ -14,6 +14,10 @@
         state: present
       register: add_to_group_result
 
+    - name: Set group_status after add
+      ansible.builtin.set_fact:
+        group_status: "{{ 'Added' if add_to_group_result.changed else 'Already in group' }}"
+
     - name: Update mail_content based on group adding status
       ansible.builtin.set_fact:
         mail_content: |
@@ -25,6 +29,10 @@
           {% endif %}
 
   rescue:
+    - name: Set group_status on add error
+      ansible.builtin.set_fact:
+        group_status: "Error: {{ add_to_group_result.msg | default(ansible_failed_result.msg | default('Unknown error')) | truncate(120) }}"
+
     - name: Fill mail_content with error message
       ansible.builtin.set_fact:
         mail_content: |-

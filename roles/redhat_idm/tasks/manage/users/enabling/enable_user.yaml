@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/enabling/03_enable_user.yaml
+# roles/redhat_idm/tasks/manage/users/enabling/enable_user.yaml
 
 ---
 - block:
@@ -11,6 +11,10 @@
       ipaadmin_password: "{{ ipa_pass }}"
     register: user_enabling_result
 
+  - name: Set user_status after enabling
+    ansible.builtin.set_fact:
+      user_status: "{{ 'Enabled' if user_enabling_result.changed else 'Already enabled' }}"
+
   - name: Update mail_content based on enabling status
     ansible.builtin.set_fact:
       mail_content: |
@@ -22,11 +26,15 @@
         {% endif %}
 
   rescue:
+  - name: Set user_status on enabling error
+    ansible.builtin.set_fact:
+      user_status: "Error: {{ user_enabling_result.msg | default(ansible_failed_result.msg | default('Unknown error')) | truncate(120) }}"
+
   - name: Fill mail_content with error message
     ansible.builtin.set_fact:
       mail_content: |-
         {{ mail_content }}
-        <b>{{ ipa_domain }} - ⚠️ Failed enable {{ username | default('username-var') }} account.</b><br>
+        <b>{{ ipa_domain }} - ⚠️ Failed to enable {{ username | default('username-var') }} account.</b><br>
         <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
-        {{ user_enabling_result.msg | default(['No msg captured']) }}
+        {{ user_enabling_result.msg | default(ansible_failed_result.msg | default('No msg captured')) }}
         </pre>

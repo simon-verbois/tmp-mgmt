@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/enabling/02_loop_on_users.yaml
+# roles/redhat_idm/tasks/manage/users/enabling/loop_on_users.yaml
 
 ---
 - name: Generate random password
@@ -12,10 +12,32 @@
 - name: Include reset user password tasks
   ansible.builtin.include_tasks: reset_password.yaml
 
-- name: Append result data to csv
-  ansible.builtin.set_fact:
-    csv_lines: "{{ csv_lines }}{{ username }},\
-                {{ generated_password }},\
-                {{ 'Enabled' if user_enabling_result.changed | default(false) else 'Doesn''t exist on this IPA' }},\
-                {{ client_id }},\
-                {{ ipa_domain }};"
+- name: Save per-user result to JSON
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ working_dir }}/manage_enabling_{{ current_ipa.key }}_{{ username }}.json"
+    content: "{{ payload | to_json }}"
+    mode: "0600"
+  no_log: true
+  vars:
+    payload:
+      operation: "enabling"
+      meta:
+        client_id: "{{ client_id }}"
+        ipa_domain: "{{ ipa_domain }}"
+        ipa_server: "{{ ipa_server }}"
+        generated_at: "{{ now(fmt='%Y-%m-%d %H:%M:%S') }}"
+      rows:
+        - username: "{{ username }}"
+          status: "{{ user_status }}"
+          password: "{{ generated_password }}"
+          client_id: "{{ client_id }}"
+          ipa_domain: "{{ ipa_domain }}"
+
+- name: Generate XLSX for {{ username }}
+  delegate_to: localhost
+  ansible.builtin.command: >-
+    python3 {{ working_dir }}/generate_xlsx_manage.py
+    {{ working_dir }}/manage_enabling_{{ current_ipa.key }}_{{ username }}.json
+    {{ working_dir }}/ipa_enabling_{{ current_ipa.key }}_{{ username }}_{{ now(fmt='%Y%m%d-%H%M') }}.xlsx
+  changed_when: true

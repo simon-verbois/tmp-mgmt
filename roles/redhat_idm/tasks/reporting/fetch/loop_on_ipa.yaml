@@ -1,5 +1,5 @@
 # roles/redhat_idm/tasks/reporting/fetch/loop_on_ipa.yaml
-# Fetches all IPA data in a single Kerberos session and generates an XLSX report.
+# Fetches all IPA data via JSON-RPC API in a single Kerberos session and generates an XLSX report.
 
 ---
 - name: "Set per-IPA vars for {{ current_ipa.key }}"
@@ -27,156 +27,236 @@
 
   - name: "Fetch users ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json user-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"user_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_users
     changed_when: false
-    when: "'users' in enabled_sheets"
+    failed_when: raw_users.rc != 0
 
   - name: "Fetch user groups ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json group-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"group_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_groups
     changed_when: false
-    when: "'groups' in enabled_sheets"
+    failed_when: raw_groups.rc != 0
 
   - name: "Fetch hosts ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json host-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"host_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_hosts
     changed_when: false
-    when: "'hosts' in enabled_sheets"
+    failed_when: raw_hosts.rc != 0
 
   - name: "Fetch host groups ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json hostgroup-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"hostgroup_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_host_groups
     changed_when: false
-    when: "'host_groups' in enabled_sheets"
+    failed_when: raw_host_groups.rc != 0
 
   # ── Policies ────────────────────────────────────────────────────────────────
 
   - name: "Fetch sudo rules ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json sudorule-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"sudorule_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_sudo_rules
     changed_when: false
-    when: "'sudo_rules' in enabled_sheets"
+    failed_when: raw_sudo_rules.rc != 0
 
   - name: "Fetch HBAC rules ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json hbacrule-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"hbacrule_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_hbac_rules
     changed_when: false
-    when: "'hbac_rules' in enabled_sheets"
+    failed_when: raw_hbac_rules.rc != 0
 
   - name: "Fetch password policies ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json pwpolicy-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"pwpolicy_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_pw_policies
     changed_when: false
-    when: "'pw_policies' in enabled_sheets"
+    failed_when: raw_pw_policies.rc != 0
 
   # ── Extras ──────────────────────────────────────────────────────────────────
 
   - name: "Fetch roles ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json role-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"role_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_roles
     changed_when: false
-    when: "'roles' in enabled_sheets"
+    failed_when: raw_roles.rc != 0
 
   - name: "Fetch services ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json service-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"service_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_services
     changed_when: false
-    when: "'services' in enabled_sheets"
+    failed_when: raw_services.rc != 0
 
   - name: "Fetch DNS zones ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json dnszone-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"dnszone_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_dns_zones
     changed_when: false
-    when: "'dns_zones' in enabled_sheets"
+    failed_when: raw_dns_zones.rc != 0
 
   - name: "Fetch HBAC services ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json hbacsvc-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"hbacsvc_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_hbac_services
     changed_when: false
-    when: "'hbac_services' in enabled_sheets"
+    failed_when: raw_hbac_services.rc != 0
 
   - name: "Fetch HBAC service groups ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json hbacsvcgroup-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"hbacsvcgroup_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_hbac_service_groups
     changed_when: false
-    when: "'hbac_service_groups' in enabled_sheets"
+    failed_when: raw_hbac_service_groups.rc != 0
 
   - name: "Fetch sudo commands ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json sudocmd-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"sudocmd_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_sudo_commands
     changed_when: false
-    when: "'sudo_commands' in enabled_sheets"
+    failed_when: raw_sudo_commands.rc != 0
 
   - name: "Fetch sudo command groups ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json sudocmdgroup-find --sizelimit=9999 --all"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"sudocmdgroup_find","params":[[],{"all":true,"sizelimit":9999}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_sudo_cmd_groups
     changed_when: false
-    when: "'sudo_command_groups' in enabled_sheets"
+    failed_when: raw_sudo_cmd_groups.rc != 0
 
   - name: "Fetch automember rules (groups) ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json automember-find --sizelimit=9999 --all --type=group"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"automember_find","params":[[],{"all":true,"sizelimit":9999,"type":"group"}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_automember_groups
     changed_when: false
-    when: "'automember' in enabled_sheets"
+    failed_when: raw_automember_groups.rc != 0
 
   - name: "Fetch automember rules (hostgroups) ({{ ipa_server }})"
     delegate_to: "{{ ipa_server }}"
-    ansible.builtin.shell: "ipa --json automember-find --sizelimit=9999 --all --type=hostgroup"
+    ansible.builtin.shell: >-
+      curl -s -k --negotiate -u :
+      -H 'Content-Type: application/json'
+      -H 'Referer: https://{{ ipa_server }}/ipa'
+      --data-binary '{"method":"automember_find","params":[[],{"all":true,"sizelimit":9999,"type":"hostgroup"}],"id":0}'
+      'https://{{ ipa_server }}/ipa/json'
     environment:
       KRB5CCNAME: "/tmp/laf_krb_{{ run_unique_id }}"
     register: raw_automember_hostgroups
     changed_when: false
-    when: "'automember' in enabled_sheets"
+    failed_when: raw_automember_hostgroups.rc != 0
 
   # ── Save combined JSON ───────────────────────────────────────────────────────
 
   - name: "Save combined IPA data to JSON ({{ current_ipa.key }})"
-    delegate_to: tower.csv.local
+    delegate_to: localhost
     ansible.builtin.copy:
       dest: "{{ working_dir }}/ipa_data_{{ current_ipa.key }}.json"
       content: "{{ combined_data | to_json }}"
@@ -187,8 +267,7 @@
           client_id: "{{ client_id }}"
           ipa_domain: "{{ ipa_domain }}"
           ipa_server: "{{ ipa_server }}"
-          generated_at: "{{ lookup('pipe', 'date +%Y-%m-%d %H:%M:%S') }}"
-          enabled_sheets: "{{ enabled_sheets }}"
+          generated_at: "{{ now(fmt='%Y-%m-%d %H:%M:%S') }}"
         users:            "{{ (raw_users.stdout            | from_json) if raw_users            is not skipped else {} }}"
         groups:           "{{ (raw_groups.stdout           | from_json) if raw_groups           is not skipped else {} }}"
         hosts:            "{{ (raw_hosts.stdout            | from_json) if raw_hosts            is not skipped else {} }}"
@@ -208,10 +287,18 @@
 
   # ── Generate XLSX ────────────────────────────────────────────────────────────
 
+  - name: "Deploy XLSX generation script to working dir"
+    delegate_to: localhost
+    ansible.builtin.copy:
+      src: "{{ role_path }}/files/generate_xlsx_report.py"
+      dest: "{{ working_dir }}/generate_xlsx_report.py"
+      mode: "0755"
+    run_once: true
+
   - name: "Generate XLSX report for {{ current_ipa.key }}"
-    delegate_to: tower.csv.local
+    delegate_to: localhost
     ansible.builtin.command: >-
-      python3 {{ role_path }}/files/generate_xlsx_report.py
+      python3 {{ working_dir }}/generate_xlsx_report.py
       {{ working_dir }}/ipa_data_{{ current_ipa.key }}.json
       {{ working_dir }}/ipa_report_{{ current_ipa.key }}_{{ report_timestamp }}.xlsx
 

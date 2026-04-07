@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/deletion/03_delete_user.yaml
+# roles/redhat_idm/tasks/manage/users/deletion/delete_user.yaml
 
 ---
 - block:
@@ -11,7 +11,11 @@
       ipaadmin_password: "{{ ipa_pass }}"
     register: user_deletion_result
 
-  - name: Update mail_content based on creation status
+  - name: Set user_status after deletion
+    ansible.builtin.set_fact:
+      user_status: "{{ 'Deleted' if user_deletion_result.changed else 'Not found' }}"
+
+  - name: Update mail_content based on deletion status
     ansible.builtin.set_fact:
       mail_content: |
         {{ mail_content }}
@@ -22,11 +26,15 @@
         {% endif %}
 
   rescue:
+  - name: Set user_status on deletion error
+    ansible.builtin.set_fact:
+      user_status: "Error: {{ user_deletion_result.msg | default(ansible_failed_result.msg | default('Unknown error')) | truncate(120) }}"
+
   - name: Fill mail_content with error message
     ansible.builtin.set_fact:
       mail_content: |-
         {{ mail_content }}
         <b>{{ ipa_domain }} - ⚠️ Failed to delete the {{ username | default('username-var') }} account.</b><br>
         <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
-        {{ user_deletion_result.msg | default(['No msg captured']) }}
+        {{ user_deletion_result.msg | default(ansible_failed_result.msg | default('No msg captured')) }}
         </pre>

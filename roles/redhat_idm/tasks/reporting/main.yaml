@@ -21,41 +21,9 @@
   - name: Include set of tasks to create selected IPA dict
     ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/define_select_ipa_dict.yaml"
 
-  - name: Define enabled sheets from flags
-    ansible.builtin.set_fact:
-      enabled_sheets: >-
-        {%- set s = [] -%}
-        {%- set all = enable_all_reporting | default(false) | bool -%}
-        {%- if all or enable_users_reporting          | default(false) | bool -%}{%- set _ = s.append('users')               -%}{%- endif -%}
-        {%- if all or enable_user_groups_reporting    | default(false) | bool -%}{%- set _ = s.append('groups')              -%}{%- endif -%}
-        {%- if all or enable_hosts_reporting          | default(false) | bool -%}{%- set _ = s.append('hosts')               -%}{%- endif -%}
-        {%- if all or enable_host_groups_reporting    | default(false) | bool -%}{%- set _ = s.append('host_groups')         -%}{%- endif -%}
-        {%- if all or enable_sudo_rules_reporting     | default(false) | bool -%}{%- set _ = s.append('sudo_rules')          -%}{%- endif -%}
-        {%- if all or enable_hbac_rules_reporting     | default(false) | bool -%}{%- set _ = s.append('hbac_rules')          -%}{%- endif -%}
-        {%- if all or enable_password_policies_reporting | default(false) | bool -%}{%- set _ = s.append('pw_policies')      -%}{%- endif -%}
-        {%- if all or enable_roles_reporting          | default(false) | bool -%}{%- set _ = s.append('roles')               -%}{%- endif -%}
-        {%- if all or enable_services_reporting       | default(false) | bool -%}{%- set _ = s.append('services')            -%}{%- endif -%}
-        {%- if all or enable_dns_zones_reporting      | default(false) | bool -%}{%- set _ = s.append('dns_zones')           -%}{%- endif -%}
-        {%- if all or enable_hbac_services_reporting  | default(false) | bool -%}{%- set _ = s.append('hbac_services')       -%}{%- endif -%}
-        {%- if all or enable_hbac_svc_groups_reporting | default(false) | bool -%}{%- set _ = s.append('hbac_service_groups') -%}{%- endif -%}
-        {%- if all or enable_sudo_commands_reporting  | default(false) | bool -%}{%- set _ = s.append('sudo_commands')       -%}{%- endif -%}
-        {%- if all or enable_sudo_cmd_groups_reporting | default(false) | bool -%}{%- set _ = s.append('sudo_command_groups') -%}{%- endif -%}
-        {%- if all or enable_automember_reporting     | default(false) | bool -%}{%- set _ = s.append('automember')          -%}{%- endif -%}
-        {{ s }}
-
-  - name: Fail if no sheet is enabled
-    ansible.builtin.fail:
-      msg: "No reporting flag is enabled. Use enable_all_reporting=true or a specific enable_*_reporting flag."
-    when: enabled_sheets | length == 0
-
   - name: Define mail subject
     ansible.builtin.set_fact:
-      mail_subject: >-
-        {%- if enable_all_reporting | default(false) | bool -%}
-          [LAF] IPA Reporting - Global reporting
-        {%- else -%}
-          [LAF] IPA Reporting - {{ enabled_sheets | join(', ') }}
-        {%- endif -%}
+      mail_subject: "[LAF] IPA Reporting - Global reporting"
 
   ############################################
   #  Loop on selected IPAs                   #

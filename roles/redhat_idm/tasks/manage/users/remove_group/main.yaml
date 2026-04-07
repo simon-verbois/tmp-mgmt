@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/remove_group/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/remove_group/main.yaml
 
 ---
 - name: Define specific vars

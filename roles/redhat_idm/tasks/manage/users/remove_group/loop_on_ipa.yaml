@@ -1,9 +1,9 @@
-# roles/redhat_idm/tasks/manage/users/remove_group/01_loop_on_ipa.yaml
+# roles/redhat_idm/tasks/manage/users/remove_group/loop_on_ipa.yaml
 
 ---
-- name: Define specific vars
+- name: Initialize result rows
   ansible.builtin.set_fact:
-    csv_lines: "sep=,;Username,Status,Groups,Client ID,IPA Domain;"
+    result_rows: []
 
 - block:
   - name: Failed if __username is empty
@@ -11,25 +11,43 @@
       msg: "__username is empty, stopping execution."
     when: __username | length == 0
 
-  - name: Loop on _username list 
+  - name: Loop on __username list
     ansible.builtin.include_tasks: loop_on_users.yaml
     loop: '{{ __username | split(";") }}'
     loop_control:
       loop_var: username
 
-  - name: "Create csv result file for {{ ipa_server }}" 
-    ansible.builtin.lineinfile:
-      insertafter: EOF
-      create: true
-      dest: "{{ working_dir }}/ipa_remove_users_from_groups_{{ current_ipa.key }}_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.csv"
-      line: "{{ line }}"
-    loop: "{{ csv_lines | split(';') }}"
-    loop_control:
-      loop_var: line
-      label: "Sensitive data is hidden."
-    when: 
-      - line != "" and csv_lines is defined
-      - remove_from_group_result is defined and not remove_from_group_result.failed
+  - name: Deploy manage XLSX script
+    delegate_to: localhost
+    ansible.builtin.copy:
+      src: "{{ role_path }}/files/generate_xlsx_manage.py"
+      dest: "{{ working_dir }}/generate_xlsx_manage.py"
+      mode: "0755"
+    run_once: true
+
+  - name: Save result rows to JSON
+    delegate_to: localhost
+    ansible.builtin.copy:
+      dest: "{{ working_dir }}/manage_remove_group_{{ current_ipa.key }}.json"
+      content: "{{ payload | to_json }}"
+      mode: "0600"
+    vars:
+      payload:
+        operation: "remove_group"
+        meta:
+          client_id: "{{ client_id }}"
+          ipa_domain: "{{ ipa_domain }}"
+          ipa_server: "{{ ipa_server }}"
+          generated_at: "{{ now(fmt='%Y-%m-%d %H:%M:%S') }}"
+        rows: "{{ result_rows }}"
+
+  - name: "Generate XLSX for {{ current_ipa.key }}"
+    delegate_to: localhost
+    ansible.builtin.command: >-
+      python3 {{ working_dir }}/generate_xlsx_manage.py
+      {{ working_dir }}/manage_remove_group_{{ current_ipa.key }}.json
+      {{ working_dir }}/ipa_remove_group_{{ current_ipa.key }}_{{ now(fmt='%Y%m%d-%H%M') }}.xlsx
+    changed_when: true
 
   rescue:
   - name: Fill mail_content with error message

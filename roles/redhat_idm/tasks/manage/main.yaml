@@ -5,7 +5,7 @@
   block:
   - name: Define default vars for this sub-role
     ansible.builtin.set_fact:
-      mail_subject: "[LAF] Manage IPA - No Job Selected" 
+      mail_subject: "[LAF] Manage IPA - No Job Selected"
       mail_content: |-
         {{ __mail_header }}
         <br>
@@ -15,11 +15,11 @@
         </div>
 
   - name: Include create working_dir tasks
-    ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/create_working_dir.yaml" 
+    ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/create_working_dir.yaml"
 
   - name: Include set of tasks to create selected IPA dict
     ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/define_select_ipa_dict.yaml"
-    
+
   ############################################
   #  Start here, depending on enabled tasks  #
   ############################################
@@ -67,11 +67,11 @@
 
   always:
   - block:
-    - name: Find all CSV files to attach
+    - name: Find all XLSX files to attach
       ansible.builtin.find:
         paths: "{{ working_dir }}"
-        patterns: "*.csv"
-      register: found_csv_files
+        patterns: "*.xlsx"
+      register: found_xlsx_files
 
     - block:
       - name: Encrypt result depending on enabled tasks
@@ -83,15 +83,15 @@
           patterns: "*.zip"
         register: found_zip_files
       when:
-        - found_csv_files.matched > 0
+        - found_xlsx_files.matched > 0
         - >
           (enable_user_creation | default(false) | bool) or
           (enable_password_reset | default(false) | bool) or
           (enable_user_enabling | default(false) | bool)
 
-    - name: Set attachments list from CSV
+    - name: Set attachments list from XLSX
       ansible.builtin.set_fact:
-        mail_attachments: "{{ found_csv_files.files | map(attribute='path') | list }}"
+        mail_attachments: "{{ found_xlsx_files.files | map(attribute='path') | list }}"
 
     - name: Set attachments list from ZIP if encryption occurred
       ansible.builtin.set_fact:

@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/remove_group/04_remove_from_group.yaml
+# roles/redhat_idm/tasks/manage/users/remove_group/remove_from_group.yaml
 
 ---
 - block:
@@ -14,6 +14,10 @@
       state: absent
     register: remove_from_group_result
 
+  - name: Set group_status after removal
+    ansible.builtin.set_fact:
+      group_status: "{{ 'Removed' if remove_from_group_result.changed else 'Already removed' }}"
+
   - name: Update mail_content based on group removal status
     ansible.builtin.set_fact:
       mail_content: |
@@ -25,6 +29,10 @@
         {% endif %}
 
   rescue:
+  - name: Set group_status on removal error
+    ansible.builtin.set_fact:
+      group_status: "Error: {{ remove_from_group_result.msg | default(ansible_failed_result.msg | default('Unknown error')) | truncate(120) }}"
+
   - name: Fill mail_content with error message
     ansible.builtin.set_fact:
       mail_content: |-
@@ -33,4 +41,3 @@
         <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">
         {{ remove_from_group_result.msg | default(ansible_failed_result.msg | default('Unknown error')) }}
         </pre>
-

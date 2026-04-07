@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/add_pubkey/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/add_pubkey/main.yaml
 
 ---
 - name: Loop on selected IPA
@@ -15,11 +15,3 @@
     ipa_pass: "{{ current_ipa.value.password }}"
     ipa_default_homedir: "{{ current_ipa.value.default_homedir }}"
     ipa_default_shell: "{{ current_ipa.value.default_shell }}"
-
-- name: "Display status"
-  ansible.builtin.debug:
-    msg: "{{ add_pubkey_report }}"
-  run_once: true
-
-- name: "Stop here"
-  ansible.builtin.meta: end_host

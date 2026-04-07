@@ -1,10 +1,10 @@
-# roles/redhat_idm/tasks/manage/users/creation/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/creation/main.yaml
 
 ---
 - name: Define specific vars
   ansible.builtin.set_fact:
     mail_subject: "[LAF] Create IPA user"
-    output_zip_file: "ipa_create_users_{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}.zip"
+    output_zip_file: "ipa_create_users_{{ now(fmt='%Y%m%d-%H%M') }}.zip"
 
 - name: Loop on selected IPAs
   ansible.builtin.include_tasks: loop_on_ipa.yaml

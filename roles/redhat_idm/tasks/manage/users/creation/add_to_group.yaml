@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/creation/04_add_user_to_group.yaml
+# roles/redhat_idm/tasks/manage/users/creation/add_to_group.yaml
 
 ---
 - block:

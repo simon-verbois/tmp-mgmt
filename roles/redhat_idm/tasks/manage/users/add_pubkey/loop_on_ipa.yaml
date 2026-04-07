@@ -1,8 +1,44 @@
-# roles/redhat_idm/tasks/manage/users/add_pubkey/01_loop_on_ipa.yaml
+# roles/redhat_idm/tasks/manage/users/add_pubkey/loop_on_ipa.yaml
 
 ---
+- name: Initialize result rows
+  ansible.builtin.set_fact:
+    result_rows: []
+
 - name: Loop on all users
   ansible.builtin.include_tasks: loop_on_users.yaml
   loop: "{{ deep_data | dict2items | map(attribute='value.users') | select('defined') | flatten }}"
   loop_control:
     label: "{{ item.user }}"
+
+- name: Deploy manage XLSX script
+  delegate_to: localhost
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/generate_xlsx_manage.py"
+    dest: "{{ working_dir }}/generate_xlsx_manage.py"
+    mode: "0755"
+  run_once: true
+
+- name: Save result rows to JSON
+  delegate_to: localhost
+  ansible.builtin.copy:
+    dest: "{{ working_dir }}/manage_add_pubkey_{{ current_ipa.key }}.json"
+    content: "{{ payload | to_json }}"
+    mode: "0600"
+  vars:
+    payload:
+      operation: "add_pubkey"
+      meta:
+        client_id: "{{ client_id }}"
+        ipa_domain: "{{ ipa_domain }}"
+        ipa_server: "{{ ipa_server }}"
+        generated_at: "{{ now(fmt='%Y-%m-%d %H:%M:%S') }}"
+      rows: "{{ result_rows }}"
+
+- name: "Generate XLSX for {{ current_ipa.key }}"
+  delegate_to: localhost
+  ansible.builtin.command: >-
+    python3 {{ working_dir }}/generate_xlsx_manage.py
+    {{ working_dir }}/manage_add_pubkey_{{ current_ipa.key }}.json
+    {{ working_dir }}/ipa_add_pubkey_{{ current_ipa.key }}_{{ now(fmt='%Y%m%d-%H%M') }}.xlsx
+  changed_when: true

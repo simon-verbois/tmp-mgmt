@@ -19,7 +19,7 @@
     ansible.builtin.shell: >-
       zip -m -j -P '{{ pmp_fetched_password }}'
       {{ working_dir }}/{{ output_zip_file }}
-      {{ found_csv_files.files | default([]) | map(attribute='path') | list | join(' ') }}
+      {{ found_xlsx_files.files | default([]) | map(attribute='path') | list | join(' ') }}
 
   - name: Add information to decrypt the archive to mail_content
     ansible.builtin.set_fact:
@@ -39,7 +39,7 @@
     ansible.builtin.shell: >-
       zip -m -j -P Tigrou007@
       {{ working_dir }}/{{ output_zip_file }}
-      {{ found_csv_files.files | default([]) | map(attribute='path') | list | join(' ') }}
+      {{ found_xlsx_files.files | default([]) | map(attribute='path') | list | join(' ') }}
 
   - name: Add information to decrypt the archive to mail_content (fallback)
     ansible.builtin.set_fact:

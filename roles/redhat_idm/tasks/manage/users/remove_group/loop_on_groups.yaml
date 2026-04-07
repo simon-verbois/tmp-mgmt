@@ -1,13 +1,16 @@
-# roles/redhat_idm/tasks/manage/users/remove_group/03_loop_on_groups.yaml
+# roles/redhat_idm/tasks/manage/users/remove_group/loop_on_groups.yaml
 
 ---
-- name: Include remove from groups tasks
+- name: Include remove from group tasks
   ansible.builtin.include_tasks: remove_from_group.yaml
 
-- name: Append result data to csv
+- name: Append result to rows
   ansible.builtin.set_fact:
-    csv_lines: "{{ csv_lines }}{{ username }},\
-                {{ 'Removed from' if remove_from_group_result.changed | default(false) else 'Doesn''t exist on this IPA' }},\
-                {{ groupname }},\
-                {{ client_id }},\
-                {{ ipa_domain }};"
+    result_rows: "{{ result_rows + [row] }}"
+  vars:
+    row:
+      username: "{{ username }}"
+      group: "{{ groupname }}"
+      status: "{{ group_status }}"
+      client_id: "{{ client_id }}"
+      ipa_domain: "{{ ipa_domain }}"

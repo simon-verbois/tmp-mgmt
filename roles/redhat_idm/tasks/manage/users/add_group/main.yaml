@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/manage/users/add_group/00_main.yaml
+# roles/redhat_idm/tasks/manage/users/add_group/main.yaml
 
 ---
 - name: Define mail_subject var
