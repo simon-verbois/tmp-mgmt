@@ -1,8 +1,27 @@
 # roles/redhat_idm/tasks/manage/users/deletion/loop_on_users.yaml
 
 ---
+- name: Set username from loop var
+  ansible.builtin.set_fact:
+    username: "{{ loop_username }}"
+
+- name: Include fetch user data tasks
+  ansible.builtin.include_tasks: fetch_user_before_delete.yaml
+
 - name: Include delete user tasks
   ansible.builtin.include_tasks: delete_user.yaml
+
+- name: Add recreation command to mail_content
+  ansible.builtin.set_fact:
+    mail_content: |
+      {{ mail_content }}
+      <div style="border: 1px solid #ccc; padding: 8px; border-radius: 4px; background-color: #f9f9f9; margin: 5px 0;">
+        <b>Recréation de {{ username }} :</b><br>
+        <pre style="background-color: #f0f0f0; padding: 8px; border: 1px solid #ccc; font-size: 0.9em;">{{ recreation_command }}</pre>
+      </div>
+  when:
+    - user_status == 'Deleted'
+    - recreation_command != '-'
 
 - name: Append result to rows
   ansible.builtin.set_fact:

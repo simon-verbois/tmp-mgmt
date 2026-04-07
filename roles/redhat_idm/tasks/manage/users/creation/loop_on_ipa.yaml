@@ -10,13 +10,24 @@
   run_once: true
 
 - block:
+  - name: Assert required variables for creation
+    ansible.builtin.assert:
+      that:
+        - (data_prompted | default('') | length > 0) or
+          (usernames | default('') | length > 0 and
+           user_firstname | default('') | length > 0 and
+           user_lastname | default('') | length > 0)
+      fail_msg: >-
+        Provide either 'data_prompted' (bulk mode) or at minimum
+        'usernames', 'user_firstname' and 'user_lastname' (single-user mode).
+
   - name: Parse user data into a dictionary
     ansible.builtin.set_fact:
       users_dict: >-
         {%- set result = {} -%}
 
-        {%- if __data_prompted is defined and __data_prompted | string | trim | length > 0 -%}
-          {%- set lines = __data_prompted.strip().split('\n') -%}
+        {%- if data_prompted is defined and data_prompted | string | trim | length > 0 -%}
+          {%- set lines = data_prompted.strip().split('\n') -%}
           {%- for line in lines -%}
             {%- if line | trim | length > 0 -%}
               {%- set fields = line.split(';') -%}
@@ -29,7 +40,8 @@
                     'groups': fields[4],
                     'homefolder': ipa_default_homedir + '/' + fields[0],
                     'shell': ipa_default_shell,
-                    'service_account': __user_service_account | default(false) | bool
+                    'service_account': user_service_account | default(false) | bool,
+                    'uidnumber': ''
                   }
                 }) -%}
               {%- endif -%}
@@ -37,16 +49,17 @@
           {%- endfor -%}
 
         {%- else -%}
-          {%- if __username is defined and not (__username | string).startswith('{{') -%}
+          {%- if usernames is defined and not (usernames | string).startswith('{{') -%}
             {%- set _ = result.update({
-              __username: {
-                'firstname': __user_firstname,
-                'lastname': __user_lastname,
-                'mail': __user_mail,
-                'groups': __user_groups,
-                'homefolder': ipa_default_homedir + '/' + __username,
+              usernames: {
+                'firstname': user_firstname,
+                'lastname': user_lastname,
+                'mail': user_mail,
+                'groups': user_groups,
+                'homefolder': ipa_default_homedir + '/' + usernames,
                 'shell': ipa_default_shell,
-                'service_account': __user_service_account | default(false) | bool
+                'service_account': user_service_account | default(false) | bool,
+                'uidnumber': user_uidnumber | default('')
               }
             }) -%}
           {%- endif -%}
@@ -74,6 +87,7 @@
       user_homefolder: "{{ user_infos.value.homefolder }}"
       user_shell: "{{ user_infos.value.shell }}"
       user_service_account: "{{ user_infos.value.service_account }}"
+      user_uidnumber: "{{ user_infos.value.uidnumber | default('') }}"
 
   rescue:
   - name: Fill mail_content with error message

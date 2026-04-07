@@ -1,6 +1,10 @@
 # roles/redhat_idm/tasks/manage/users/enabling/loop_on_users.yaml
 
 ---
+- name: Set username from loop var
+  ansible.builtin.set_fact:
+    username: "{{ loop_username }}"
+
 - name: Generate random password
   ansible.builtin.set_fact:
     generated_password: "{{ lookup('community.general.random_string', length=20, override_special='%()+-/<=>?^_') }}"

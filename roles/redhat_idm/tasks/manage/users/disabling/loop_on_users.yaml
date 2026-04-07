@@ -1,6 +1,10 @@
 # roles/redhat_idm/tasks/manage/users/disabling/loop_on_users.yaml
 
 ---
+- name: Set username from loop var
+  ansible.builtin.set_fact:
+    username: "{{ loop_username }}"
+
 - name: Include disable user tasks
   ansible.builtin.include_tasks: disable_user.yaml
 

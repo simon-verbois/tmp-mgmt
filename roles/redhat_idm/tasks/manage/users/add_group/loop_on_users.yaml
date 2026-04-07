@@ -1,8 +1,12 @@
 # roles/redhat_idm/tasks/manage/users/add_group/loop_on_users.yaml
 
 ---
-- name: Loop on __user_groups list
+- name: Set username from loop var
+  ansible.builtin.set_fact:
+    username: "{{ loop_username }}"
+
+- name: Loop on user_groups list
   ansible.builtin.include_tasks: loop_on_groups.yaml
-  loop: "{{ __user_groups | regex_replace('[,\\s]+', ',') | split(',') | select | list }}"
+  loop: "{{ user_groups | regex_replace('[,\\s]+', ',') | split(',') | select | list }}"
   loop_control:
     loop_var: groupname

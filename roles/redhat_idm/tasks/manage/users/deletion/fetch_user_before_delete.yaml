@@ -1,0 +1,62 @@
+# roles/redhat_idm/tasks/manage/users/deletion/fetch_user_before_delete.yaml
+
+---
+- name: "Login to IPA session ({{ ipa_server }})"
+  delegate_to: "{{ ipa_server }}"
+  ansible.builtin.shell: >-
+    curl -s -k -c /tmp/ipa_del_{{ ipa_server }}.txt
+    -d "user={{ ipa_user }}&password={{ ipa_pass }}"
+    "https://{{ ipa_server }}/ipa/session/login_password"
+  no_log: true
+  changed_when: false
+  failed_when: false
+  register: ipa_login_result
+
+- name: "Fetch user data before deletion ({{ username }})"
+  delegate_to: "{{ ipa_server }}"
+  ansible.builtin.shell: >-
+    curl -s -k -b /tmp/ipa_del_{{ ipa_server }}.txt
+    -H 'Content-Type: application/json'
+    -H 'Referer: https://{{ ipa_server }}/ipa'
+    --data-binary '{"method":"user_show","params":[["{{ username }}"],{"all":true}],"id":0}'
+    "https://{{ ipa_server }}/ipa/json"
+  changed_when: false
+  failed_when: false
+  register: user_show_raw
+
+- name: "Clean up IPA session cookie ({{ ipa_server }})"
+  delegate_to: "{{ ipa_server }}"
+  ansible.builtin.file:
+    path: "/tmp/ipa_del_{{ ipa_server }}.txt"
+    state: absent
+  changed_when: false
+  failed_when: false
+
+- name: "Parse user data and build recreation command"
+  ansible.builtin.set_fact:
+    recreation_command: >-
+      {%- set raw = user_show_raw.stdout | default('') -%}
+      {%- if raw | length > 0 and raw[0] == '{' -%}
+        {%- set parsed = raw | from_json -%}
+        {%- if parsed.get('error') is none and parsed.get('result') is defined -%}
+          {%- set u = parsed.result.result -%}
+          {%- set fn = u.get('givenname', [''])[0] -%}
+          {%- set ln = u.get('sn', [''])[0] -%}
+          {%- set mail = u.get('mail', [''])[0] -%}
+          {%- set groups = u.get('memberof_group', []) | join(',') -%}
+          {%- set uid = u.get('uidnumber', [''])[0] | string -%}
+          {%- set krbexp = u.get('krbpasswordexpiration', []) -%}
+          {%- set svc = krbexp | length > 0 and krbexp[0].get('__datetime__', '') | string | truncate(4, true, '') == '2222' -%}
+          enable_user_creation=true __clients_id_prompted='{{ client_id }}' usernames='{{ username }}'
+          {%- if fn %} user_firstname='{{ fn }}'{% endif %}
+          {%- if ln %} user_lastname='{{ ln }}'{% endif %}
+          {%- if mail %} user_mail='{{ mail }}'{% endif %}
+          {%- if groups %} user_groups='{{ groups }}'{% endif %}
+          {%- if uid %} user_uidnumber='{{ uid }}'{% endif %}
+          {%- if svc %} user_service_account=true{% endif %}
+        {%- else -%}
+          -
+        {%- endif -%}
+      {%- else -%}
+        -
+      {%- endif -%}

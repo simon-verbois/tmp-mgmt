@@ -11,6 +11,7 @@
       email: "{{ user_mail }}"
       homedir: "{{ user_homefolder }}"
       shell: "{{ user_shell }}"
+      uidnumber: "{{ user_uidnumber | default(omit, true) }}"
       password: "{{ generated_password }}"
       passwordexpiration: "{{ final_expiration | default(omit, true) }}"
       update_password: on_create

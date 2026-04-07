@@ -10,16 +10,17 @@
   run_once: true
 
 - block:
-  - name: Failed if __username is empty
-    ansible.builtin.fail:
-      msg: "__username is empty, stopping execution."
-    when: __username | length == 0
+  - name: Assert usernames is provided
+    ansible.builtin.assert:
+      that:
+        - usernames | default('') | length > 0
+      fail_msg: "'usernames' must be provided and non-empty (separate multiple users with ';')."
 
-  - name: Loop on __username list
+  - name: Loop on usernames list
     ansible.builtin.include_tasks: loop_on_users.yaml
-    loop: '{{ __username | split(";") }}'
+    loop: '{{ usernames | split(";") }}'
     loop_control:
-      loop_var: username
+      loop_var: loop_username
       label: "Sensitive data is hidden."
 
   rescue:
@@ -27,4 +28,4 @@
     ansible.builtin.set_fact:
       mail_content: |-
         {{ mail_content }}
-        The __username list cannot be empty, stopping execution.
+        The 'usernames' variable must be provided and non-empty, stopping execution.

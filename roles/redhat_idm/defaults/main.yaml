@@ -9,13 +9,6 @@ __target_environment: ""
 # Var to override the zip encryption password
 __use_internal_communication_password: false
 
-# Creation vars init
-__data_prompted: "" # manage var, but only used in Tower/AAP with this scheme: username;firstname;lastname;mail;group1,group2
-__username: "" # manage var
-__user_firstname: "" # manage var
-__user_lastname: "" # manage var
-__user_mail: "" # manage var
-__user_groups: "" # manage var + reporting var
+# Creation role defaults (not survey vars — use 'usernames', 'user_firstname', etc. in survey)
 __user_homefolder: "/home" # manage var
 __user_default_shell: "/bin/bash" # manage var
-__user_service_account: false # manage var
