@@ -8,7 +8,3 @@ __target_environment: ""
 
 # Var to override the zip encryption password
 __use_internal_communication_password: false
-
-# Creation role defaults (not survey vars — use 'usernames', 'user_firstname', etc. in survey)
-__user_homefolder: "/home" # manage var
-__user_default_shell: "/bin/bash" # manage var
