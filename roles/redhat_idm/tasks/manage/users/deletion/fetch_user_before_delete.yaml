@@ -1,36 +1,37 @@
 # roles/redhat_idm/tasks/manage/users/deletion/fetch_user_before_delete.yaml
 
 ---
-- name: "Login to IPA session ({{ ipa_server }})"
+- name: "Authenticate to IPA via Kerberos ({{ ipa_server }})"
   delegate_to: "{{ ipa_server }}"
-  ansible.builtin.shell: >-
-    curl -s -k -c /tmp/ipa_del_{{ ipa_server }}.txt
-    -d "user={{ ipa_user }}&password={{ ipa_pass }}"
-    "https://{{ ipa_server }}/ipa/session/login_password"
+  ansible.builtin.shell: "echo -n '{{ ipa_pass }}' | kinit {{ ipa_user }}"
+  environment:
+    KRB5CCNAME: "/tmp/laf_krb_del_{{ ipa_server }}_{{ username }}"
   no_log: true
   changed_when: false
   failed_when: false
-  register: ipa_login_result
 
 - name: "Fetch user data before deletion ({{ username }})"
   delegate_to: "{{ ipa_server }}"
   ansible.builtin.shell: >-
-    curl -s -k -b /tmp/ipa_del_{{ ipa_server }}.txt
+    curl -s -k --negotiate -u :
     -H 'Content-Type: application/json'
     -H 'Referer: https://{{ ipa_server }}/ipa'
     --data-binary '{"method":"user_show","params":[["{{ username }}"],{"all":true}],"id":0}'
-    "https://{{ ipa_server }}/ipa/json"
+    'https://{{ ipa_server }}/ipa/json'
+  environment:
+    KRB5CCNAME: "/tmp/laf_krb_del_{{ ipa_server }}_{{ username }}"
   changed_when: false
   failed_when: false
   register: user_show_raw
 
-- name: "Clean up IPA session cookie ({{ ipa_server }})"
+- name: "Destroy Kerberos ticket ({{ ipa_server }})"
   delegate_to: "{{ ipa_server }}"
-  ansible.builtin.file:
-    path: "/tmp/ipa_del_{{ ipa_server }}.txt"
-    state: absent
+  ansible.builtin.shell: "kdestroy"
+  environment:
+    KRB5CCNAME: "/tmp/laf_krb_del_{{ ipa_server }}_{{ username }}"
   changed_when: false
   failed_when: false
+  no_log: true
 
 - name: "Parse user data and build data_prompted recreation line"
   ansible.builtin.set_fact:
