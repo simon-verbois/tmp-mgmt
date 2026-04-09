@@ -3,6 +3,21 @@
 ---
 __mail_subject: '[LAF] Diag - {{ target_server }}'
 
+# --- Thresholds ---
+__diag_load_threshold_pct: 0.8        # CPU : charge critique = X * vCPUs
+__diag_swap_critical_mb: 1024         # Memory : swap utilisé > X MB pour déclencher un check
+__diag_swap_critical_ratio: 0.8       # Memory : ratio swap/RAM dispo → CRITICAL
+__diag_swap_warning_ratio: 0.5        # Memory : ratio swap/RAM dispo → WARNING
+__diag_disk_critical_pct: 90          # Storage : seuil CRITICAL en %
+__diag_disk_warning_pct: 80           # Storage : seuil WARNING en %
+
+# --- Storage investigation ---
+__diag_du_depth: 2                    # Profondeur max du scan (du -a inclut déjà fichiers + dossiers)
+__diag_du_min_size: "50M"             # Taille minimum pour inclure un élément dans le rapport
+__diag_du_top_n: 15                   # Nombre de résultats max
+__diag_du_timeout: 30                 # Timeout en secondes pour le scan du (évite les blocages sur gros FS)
+__diag_journal_lines: 20              # Nombre de lignes de journal à afficher par service failed
+
 __rhel_services_list:
   - sssd
   - rsyslog

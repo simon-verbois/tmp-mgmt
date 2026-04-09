@@ -41,19 +41,19 @@
 
     - name: Get top 5 process by SWAP usage
       ansible.builtin.shell: |
-        ps -e -o pid= | while read pid; do
-          if [ -f /proc/$pid/status ]; then
-            swap=$(awk '/VmSwap/ {print $2}' /proc/$pid/status 2>/dev/null)
-            if [[ "$swap" =~ ^[0-9]+$ ]] && [ "$swap" -gt 0 ]; then
-                user=$(ps -p $pid -o user=)
-                unit=$(ps -p $pid -o unit=)
-                comm=$(ps -p $pid -o comm=)
-                if [[ "$unit" =~ \.scope$ ]]; then unit="User Session / Script"; fi
-                [ -z "$unit" ] && unit="-"
-                echo "$swap;$pid;$user;$unit;$comm"
-            fi
-          fi
-        done | sort -t';' -k1 -nr | head -n 5 | awk -F';' '{printf "%s;%s;%.2f MB;%s;%s\n", $2, $3, $1/1024, $5, $4}'
+        awk '/^VmSwap:/ && $2 > 0 {
+          swap=$2; pid=FILENAME; sub("/proc/","",pid); sub("/status","",pid)
+          print swap" "pid
+        }' /proc/*/status 2>/dev/null \
+        | sort -rn | head -5 \
+        | while read swap pid; do
+            user=$(ps -p $pid -o user= 2>/dev/null)
+            unit=$(ps -p $pid -o unit= 2>/dev/null)
+            comm=$(ps -p $pid -o comm= 2>/dev/null)
+            [[ "$unit" =~ \.scope$ ]] && unit="User Session / Script"
+            [ -z "$unit" ] && unit="-"
+            printf "%s;%s;%.2f MB;%s;%s\n" "$pid" "$user" "$(echo "$swap / 1024" | bc -l)" "$comm" "$unit"
+          done
       delegate_to: "{{ target_server }}"
       become: true
       register: top_5_swap_usage
@@ -90,8 +90,8 @@
 
     - name: Determine Memory Status
       ansible.builtin.set_fact:
-        is_mem_critical: "{{ swap_used | float > 1024 and swap_ratio | float > 0.8 }}"
-        is_mem_warning: "{{ swap_used | float > 1024 and swap_ratio | float > 0.5 and swap_ratio | float <= 0.8 }}"
+        is_mem_critical: "{{ swap_used | float > __diag_swap_critical_mb | float and swap_ratio | float > __diag_swap_critical_ratio | float }}"
+        is_mem_warning: "{{ swap_used | float > __diag_swap_critical_mb | float and swap_ratio | float > __diag_swap_warning_ratio | float and swap_ratio | float <= __diag_swap_critical_ratio | float }}"
 
     - name: Define status properties
       ansible.builtin.set_fact:
@@ -118,7 +118,7 @@
               <span style="font-size: 0.85em;">
                 {{ '❌' if mem_usage_pct | float > 90 else '✅' }} Memory Usage ({{ mem_usage_pct }}%)<br>
                 {{ '❌' if is_mem_critical or is_mem_warning else '✅' }} Swap/Memory Pressure Ratio ({{ swap_ratio | float | round(2) }})<br>
-                {{ '❌' if swap_usage_pct | float > 80 else '✅' }} Swap Fill Rate ({{ swap_usage_pct }}%)
+                {{ '❌' if swap_usage_pct | float > 80 else '✅' }} Swap Fill Rate ({{ swap_usage_pct }}% — {{ swap_used }} MB / {{ swap_total }} MB)
               </span>
             </div>
 

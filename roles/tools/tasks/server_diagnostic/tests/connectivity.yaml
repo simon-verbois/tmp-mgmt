@@ -86,7 +86,7 @@
                 {{ '✅' if is_ping_ok else '❌' }} ICMP Ping Response
               </span>
               <div style="text-align: right; margin: 0; padding: 0;">
-                <a href="https://centreon.csv.local/centreon/monitoring/resources?filter=%7B%22criterias%22%3A%5B%7B%22name%22%3A%22search%22%2C%22value%22%3A%22{{ target_server | urlencode }}%22%7D%5D%7D" 
+                <a href="https://{{ __centreon_fqdn }}/centreon/monitoring/resources?filter=%7B%22criterias%22%3A%5B%7B%22name%22%3A%22search%22%2C%22value%22%3A%22{{ target_server | urlencode }}%22%7D%5D%7D"
                   style="background-color: #333; color: white; padding: 4px 10px; text-decoration: none; border-radius: 3px; font-size: 0.75em; font-weight: bold; display: inline-block; vertical-align: middle;">
                   VIEW ON CENTREON
                 </a>

@@ -42,7 +42,7 @@
     - name: Determine load metrics
       ansible.builtin.set_fact:
         load_15m: "{{ (load_result.stdout | split)[2] | float }}"
-        load_threshold: "{{ (0.8 * ansible_processor_vcpus | float) | round(2) }}"
+        load_threshold: "{{ (__diag_load_threshold_pct | float * ansible_processor_vcpus | float) | round(2) }}"
         top_cpu_process_name: "{{ (top_5_cpu_usage.stdout_lines[0].split(';'))[5] if top_5_cpu_usage.stdout_lines | length > 0 else 'unknown' }}"
 
     - name: Set Responsibility Label

@@ -13,7 +13,7 @@
 
 - block:
     - name: Get disk usage details
-      ansible.builtin.shell: df -x tmpfs -x devtmpfs -Ph | tail -n +2 | awk '{print $1";"$2";"$3";"$4";"$5";"$6}'
+      ansible.builtin.shell: df -x tmpfs -x devtmpfs -PTh | tail -n +2 | awk '{print $1";"$2";"$3";"$4";"$5";"$6";"$7}'
       delegate_to: "{{ target_server }}"
       become: true
       register: df_result
@@ -39,8 +39,25 @@
 
     - name: Analyze disk thresholds
       ansible.builtin.set_fact:
-        critical_disks: "{{ df_result.stdout_lines | map('split', ';') | selectattr(4, 'search', '9[0-9]%|100%') | list }}"
-        warning_disks: "{{ df_result.stdout_lines | map('split', ';') | selectattr(4, 'search', '8[0-9]%') | list }}"
+        critical_disks: |
+          {%- set result = [] -%}
+          {%- for line in df_result.stdout_lines -%}
+            {%- set cells = line.split(';') -%}
+            {%- if cells[5] | replace('%', '') | int >= __diag_disk_critical_pct | int -%}
+              {%- set _ = result.append(cells) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+        warning_disks: |
+          {%- set result = [] -%}
+          {%- for line in df_result.stdout_lines -%}
+            {%- set cells = line.split(';') -%}
+            {%- set pct = cells[5] | replace('%', '') | int -%}
+            {%- if pct >= __diag_disk_warning_pct | int and pct < __diag_disk_critical_pct | int -%}
+              {%- set _ = result.append(cells) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
         has_ro_disks: "{{ ro_mounts.stdout_lines | length > 0 }}"
         has_missing_mounts: "{{ missing_mounts | length > 0 }}"
 
@@ -48,13 +65,13 @@
       ansible.builtin.set_fact:
         problematic_mount: >-
           {%- if critical_disks | length > 0 -%}
-            {{ critical_disks[0][5] | trim }}
+            {{ critical_disks[0][6] | trim }}
           {%- elif warning_disks | length > 0 -%}
-            {{ warning_disks[0][5] | trim }}
+            {{ warning_disks[0][6] | trim }}
           {%- elif ro_mounts.stdout_lines | length > 0 -%}
             {{ ro_mounts.stdout_lines[0].split()[1] | trim }}
           {%- else -%}
-            {{ df_result.stdout_lines[0].split(';')[5] | trim }}
+            {{ df_result.stdout_lines[0].split(';')[6] | trim }}
           {%- endif -%}
 
     - name: Set storage responsibility message
@@ -106,10 +123,11 @@
           {{ mail_content }}
           <table>
             <tr style="background-color: #e0e0e0;">
-              <th colspan="6" style="padding: 10px; text-align: center; font-size: 1.1em;">Disk Usage Details</th>
+              <th colspan="7" style="padding: 10px; text-align: center; font-size: 1.1em;">Disk Usage Details</th>
             </tr>
             <tr style="background-color: #f5f5f5; font-size: 0.9em;">
               <th>Filesystem</th>
+              <th>Type</th>
               <th>Size</th>
               <th>Used</th>
               <th>Avail</th>
@@ -118,16 +136,25 @@
             </tr>
             {% for line in df_result.stdout_lines %}
             {% set cells = line.split(';') %}
-            {% set usage = cells[4] | replace('%', '') | int %}
-            <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
+            {% set usage = cells[5] | replace('%', '') | int %}
+            {% if usage >= __diag_disk_critical_pct | int %}
+              {% set row_bg = 'background-color: #fde8e8;' %}
+              {% set pct_style = 'color: #d9534f; font-weight: bold;' %}
+            {% elif usage >= __diag_disk_warning_pct | int %}
+              {% set row_bg = 'background-color: #fef9e7;' %}
+              {% set pct_style = 'color: #f0ad4e; font-weight: bold;' %}
+            {% else %}
+              {% set row_bg = 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' %}
+              {% set pct_style = '' %}
+            {% endif %}
+            <tr style="{{ row_bg }}">
               <td>{{ cells[0] }}</td>
-              <td>{{ cells[1] }}</td>
+              <td style="color: #666; font-style: italic;">{{ cells[1] }}</td>
               <td>{{ cells[2] }}</td>
               <td>{{ cells[3] }}</td>
-              <td style="{{ 'color: #d9534f; font-weight: bold;' if usage >= 90 else ('color: #f0ad4e; font-weight: bold;' if usage >= 80 else '') }}">
-                {{ cells[4] }}
-              </td>
-              <td><b>{{ cells[5] }}</b></td>
+              <td>{{ cells[4] }}</td>
+              <td style="{{ pct_style }}">{{ cells[5] }}</td>
+              <td><b>{{ cells[6] }}</b></td>
             </tr>
             {% endfor %}
           </table>
@@ -143,7 +170,10 @@
         missing_mount_investigation_html: ""
 
     - name: Investigate saturated mount points
-      ansible.builtin.shell: "du -ah --max-depth=2 {{ item[5] | trim }} 2>/dev/null | sort -rh | head -10"
+      ansible.builtin.shell: >
+        timeout {{ __diag_du_timeout }} du -axh --max-depth={{ __diag_du_depth }}
+        --threshold={{ __diag_du_min_size }} {{ item[6] | trim }} 2>/dev/null
+        | sort -rh | head -{{ __diag_du_top_n }}
       delegate_to: "{{ target_server }}"
       become: true
       register: du_investigation
@@ -155,14 +185,15 @@
       ansible.builtin.set_fact:
         saturation_investigation_html: |-
           {% for result in du_investigation.results | default([]) %}
-          {% if not result.skipped | default(false) and result.stdout_lines | default([]) | length > 0 %}
-          <div style="margin-bottom: 12px;">
-            <b style="font-size: 0.9em;">📂 Top consumers on <code>{{ result.item[5] | trim }}</code>:</b>
+          {% if not result.skipped | default(false) %}
+          <div style="margin-bottom: 16px;">
+            <b style="font-size: 0.9em;">📂 Top consumers on <code>{{ result.item[6] | trim }}</code> (files &amp; dirs &gt; {{ __diag_du_min_size }}):</b>
             <table style="margin-top: 5px; width: 100%;">
               <tr style="background-color: #f5f5f5; font-size: 0.85em;">
                 <th style="padding: 4px 8px; text-align: left;">Size</th>
                 <th style="padding: 4px 8px; text-align: left;">Path</th>
               </tr>
+              {% if result.stdout_lines | default([]) | length > 0 %}
               {% for line in result.stdout_lines %}
               {% set parts = line.split('\t') %}
               <tr style="{{ 'background-color: #f9f9f9;' if loop.index is even else 'background-color: #ffffff;' }}">
@@ -170,6 +201,9 @@
                 <td style="padding: 4px 8px; font-family: monospace; font-size: 0.85em;">{{ parts[1] if parts | length > 1 else '' }}</td>
               </tr>
               {% endfor %}
+              {% else %}
+              <tr><td colspan="2" style="padding: 8px; color: #666;">No element above {{ __diag_du_min_size }} (or scan timed out after {{ __diag_du_timeout }}s).</td></tr>
+              {% endif %}
             </table>
           </div>
           {% endif %}

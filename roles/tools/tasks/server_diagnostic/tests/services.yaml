@@ -97,6 +97,39 @@
             {% endif %}
           </table>
 
+    - name: Collect journal logs for failed services
+      ansible.builtin.shell: >
+        journalctl -u {{ item.split(';')[0] }} -n {{ __diag_journal_lines }}
+        --no-pager --output=short-iso 2>/dev/null
+      delegate_to: "{{ target_server }}"
+      become: true
+      register: journal_results
+      ignore_errors: true
+      loop: "{{ failed_services.stdout_lines }}"
+      when: has_failed_services | bool
+
+    - name: Add journal logs to mail
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          {% if has_failed_services %}
+          <br>
+          <div style="border: 1px solid #f0ad4e; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #fdf8f0;">
+            <b style="font-size: 1.1em; color: #b8860b;">🔍 Service Logs (last {{ __diag_journal_lines }} lines)</b>
+          </div>
+          <div style="width: 95%; margin: 0 auto; font-size: 0.9em; font-family: sans-serif;">
+            {% for result in journal_results.results | default([]) %}
+            {% if not result.skipped | default(false) %}
+            <div style="margin-bottom: 12px;">
+              <b style="font-size: 0.9em;">🔴 <code>{{ result.item.split(';')[0] }}</code>:</b>
+              <pre style="background-color: #f5f5f5; padding: 8px; margin-top: 5px; font-size: 0.78em; border: 1px solid #ddd; border-radius: 3px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">{{ result.stdout if result.stdout else 'No journal entries found.' }}</pre>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
+      when: has_failed_services | bool
+
   rescue:
     - name: Add Services fallback to mail
       ansible.builtin.set_fact:
