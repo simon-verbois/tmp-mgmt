@@ -1,0 +1,58 @@
+---
+- name: "COLLECTING | Resolve Satellite host object for {{ current_host }}"
+  ansible.builtin.set_fact:
+    satellite_host_object: >-
+      {{
+        (satellite_location_hosts | selectattr('name', 'equalto', current_host) | list | first)
+        | default({})
+      }}
+
+- name: "COLLECTING | Ensure Satellite host id exists for {{ current_host }}"
+  ansible.builtin.assert:
+    that:
+      - satellite_host_object.id is defined
+    fail_msg: "Unable to resolve Satellite host id for {{ current_host }} in location {{ client_id }}."
+
+- name: "COLLECTING | List OpenSCAP reports for {{ current_host }}"
+  ansible.builtin.uri:
+    url: "{{ __satellite_https_url }}/api/v2/compliance/arf_reports?search=host_id={{ satellite_host_object.id }}&per_page=9999"
+    method: GET
+    validate_certs: false
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json"
+    user: "{{ __satellite_svc_user }}"
+    password: "{{ __satellite_svc_token }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: host_arf_reports_response
+
+- name: Define OpenSCAP reports list for host
+  ansible.builtin.set_fact:
+    host_arf_reports: >-
+      {{
+        (
+          (host_arf_reports_response.json.results | default([]))
+          | sort(attribute='id', reverse=true)
+        )[:__satellite_reports_per_host | int]
+        if (__satellite_reports_per_host | int) > 0
+        else
+        (
+          (host_arf_reports_response.json.results | default([]))
+          | sort(attribute='id', reverse=true)
+        )
+      }}
+
+- name: Add per-host summary in mail content
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <b>{{ current_host }}</b>: {{ host_arf_reports | length }} report(s) selected.<br>
+
+- name: Download raw OpenSCAP reports for host
+  ansible.builtin.include_tasks: per_report.yaml
+  loop: "{{ host_arf_reports }}"
+  loop_control:
+    loop_var: current_report
+    label: "{{ current_report.id | default('unknown') }}"
+  when: host_arf_reports | length > 0

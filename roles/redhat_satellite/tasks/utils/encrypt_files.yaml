@@ -1,0 +1,59 @@
+---
+- name: Define pmp_resource_name
+  ansible.builtin.set_fact:
+    pmp_resource_name: "{{ client_id }}"
+
+- name: Overwrite pmp_resource_name if __use_internal_communication_password is set to true
+  ansible.builtin.set_fact:
+    pmp_resource_name: '2000'
+  when: __use_internal_communication_password | bool
+
+- name: Fetch password from PMP
+  ansible.builtin.include_tasks: fetch_pmp_password.yaml
+
+- block:
+    - name: Encrypt all files to a single .zip with pmp_fetched_password
+      run_once: true
+      delegate_to: localhost
+      ansible.builtin.shell: >-
+        zip -m -j -P '{{ pmp_fetched_password }}'
+        {{ working_dir }}/{{ output_zip_file }}
+        {{ found_report_files.files | default([]) | map(attribute='path') | list | join(' ') }}
+
+    - name: Add information to decrypt the archive to mail_content
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <br>
+          <br>
+          <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+            <b style="font-size: 1.5em;">Decrypt the zip file</b>
+          </div>
+          Use {{ pmp_resource_name }} communication password to decrypt the archive.<br>
+          PMP URL: <a href="https://pmp.corp.org.ebrc.local">https://pmp.corp.org.ebrc.local</a><br>
+
+  rescue:
+    - name: Encrypt all files to a single .zip with backup password
+      run_once: true
+      delegate_to: localhost
+      ansible.builtin.shell: >-
+        zip -m -j -P Tigrou007@
+        {{ working_dir }}/{{ output_zip_file }}
+        {{ found_report_files.files | default([]) | map(attribute='path') | list | join(' ') }}
+
+    - name: Add information to decrypt the archive to mail_content (fallback)
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <br>
+          <br>
+          <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+            <b style="font-size: 1.5em;">Decrypt the zip file</b>
+          </div>
+          <div style="border: 2px solid #cc0000; padding: 8px; border-radius: 5px; background-color: #fff3f3; margin-bottom: 10px;">
+            <b style="color: #cc0000;">⚠ ACTION REQUIRED - PMP was unreachable during this execution.</b><br>
+            The archive was encrypted with the LAF backup password: <b>Tigrou007@</b><br>
+            <br>
+            Once decrypted, <b>re-encrypt it with the {{ pmp_resource_name }} CommCli password</b> before forwarding to the client.<br>
+            PMP URL: <a href="https://pmp.corp.org.ebrc.local">https://pmp.corp.org.ebrc.local</a>
+          </div>

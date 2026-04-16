@@ -1,0 +1,14 @@
+---
+# Var to override the zip encryption password
+__use_internal_communication_password: false
+
+# Optional override for target hosts.
+# If empty, use inventory hosts from the current inventory.
+__satellite_target_hosts_override: []
+
+# Output zip filename override.
+__satellite_output_zip_file: ""
+
+# Number of OpenSCAP reports to fetch per host.
+# Set to 0 to fetch all available reports.
+__satellite_reports_per_host: 1

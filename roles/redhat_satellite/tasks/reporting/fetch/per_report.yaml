@@ -1,0 +1,51 @@
+---
+- name: "Define file names for host {{ current_host }} report {{ current_report.id }}"
+  ansible.builtin.set_fact:
+    report_id: "{{ current_report.id }}"
+    report_xml_dest: "{{ working_dir }}/{{ client_id }}_{{ current_host | regex_replace('[^0-9A-Za-z._-]', '_') }}_{{ current_report.id }}_{{ current_report.created_at | default(report_timestamp) | regex_replace('[^0-9A-Za-z._-]', '_') }}.xml.bz2"
+    report_html_dest: "{{ working_dir }}/{{ client_id }}_{{ current_host | regex_replace('[^0-9A-Za-z._-]', '_') }}_{{ current_report.id }}_{{ current_report.created_at | default(report_timestamp) | regex_replace('[^0-9A-Za-z._-]', '_') }}.html"
+
+- block:
+    - name: "DOWNLOAD | Save raw ARF report for {{ current_host }} / {{ report_id }}"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ __satellite_https_url }}/api/v2/compliance/arf_reports/{{ report_id }}/download"
+        method: GET
+        validate_certs: false
+        headers:
+          Accept: "application/xml"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: true
+        status_code: 200
+        dest: "{{ report_xml_dest }}"
+
+    - name: "DOWNLOAD | Query HTML rendering for {{ current_host }} / {{ report_id }}"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ __satellite_https_url }}/api/v2/compliance/arf_reports/{{ report_id }}/html"
+        method: GET
+        validate_certs: false
+        headers:
+          Accept: "text/html"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: true
+        status_code: [200, 404]
+        return_content: true
+      register: report_html_response
+
+    - name: "DOWNLOAD | Save HTML rendering for {{ current_host }} / {{ report_id }}"
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: "{{ report_html_response.content }}"
+        dest: "{{ report_html_dest }}"
+        mode: "0644"
+      when: report_html_response.status == 200
+
+  rescue:
+    - name: Add report download error to mail content
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          Failed to download report {{ report_id }} for host {{ current_host }}.<br>

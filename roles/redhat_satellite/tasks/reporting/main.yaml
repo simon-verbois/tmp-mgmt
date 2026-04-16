@@ -1,0 +1,142 @@
+---
+- name: Global execution
+  block:
+    - name: Define default vars for this sub-role
+      ansible.builtin.set_fact:
+        mail_subject: "[LAF] Satellite OpenSCAP Reporting"
+        mail_content: |-
+          {{ __mail_header }}
+          <br>
+          <br>
+          <div style="border: 1px solid #333; padding: 8px; text-align: center; border-radius: 5px; margin-bottom: 10px; background-color: #f9f9f9;">
+            <b style="font-size: 1.5em;">Execution informations</b>
+          </div>
+        run_unique_id: "{{ lookup('password', '/dev/null length=10 chars=digits') }}"
+
+    - name: Include create working_dir tasks
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/create_working_dir.yaml"
+
+    - name: Ensure client_id is defined from inventory
+      ansible.builtin.assert:
+        that:
+          - client_id is defined
+          - client_id | string | length > 0
+        fail_msg: "client_id must be defined in inventory group_vars/all to identify the Satellite location."
+
+    - name: Define execution context
+      ansible.builtin.set_fact:
+        inventory_target_hosts: >-
+          {{
+            (
+              __satellite_target_hosts_override
+              if (__satellite_target_hosts_override | length > 0)
+              else (ansible_play_hosts_all | default(ansible_play_hosts | default([])))
+            )
+            | reject('equalto', 'localhost')
+            | reject('equalto', '127.0.0.1')
+            | reject('equalto', '::1')
+            | map('lower')
+            | list
+          }}
+        report_timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+
+    - name: Define output archive name
+      ansible.builtin.set_fact:
+        output_zip_file: >-
+          {{
+            __satellite_output_zip_file
+            if (__satellite_output_zip_file | length > 0)
+            else ('openscap_reports_' ~ client_id ~ '_' ~ report_timestamp ~ '.zip')
+          }}
+
+    - name: Validate inventory hosts list is not empty
+      ansible.builtin.assert:
+        that:
+          - inventory_target_hosts | length > 0
+        fail_msg: "No target hosts were found in the current inventory."
+
+    - name: Add Satellite header in mail content
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          <b>Client ID / Satellite location:</b> {{ client_id }}<br>
+          <b>Inventory hosts count:</b> {{ inventory_target_hosts | length }}<br>
+          <br>
+
+    - name: Fetch and export OpenSCAP reports from Satellite
+      ansible.builtin.include_tasks: fetch/collect_openscap_reports.yaml
+
+  rescue:
+    - name: Fill mail_content with error message
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          An error occur during execution, please forward this mail to cso-linux@deep.eu<br>
+          <pre style="background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;">{{ ansible_failed_result.msg | default('Unknown error') }}</pre>
+
+  always:
+    - block:
+        - name: Find all downloaded reports
+          delegate_to: localhost
+          ansible.builtin.find:
+            paths: "{{ working_dir }}"
+            patterns:
+              - "*.xml"
+              - "*.html"
+              - "*.bz2"
+            use_regex: false
+          register: found_report_files
+
+        - name: Add no-report message to mail content
+          ansible.builtin.set_fact:
+            mail_content: |-
+              {{ mail_content }}
+              No OpenSCAP report file was collected for client {{ client_id }}.<br>
+          when: found_report_files.matched == 0
+
+        - name: Encrypt reports if any file was collected
+          ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/encrypt_files.yaml"
+          when: found_report_files.matched > 0
+
+        - name: Find zip archives to attach
+          delegate_to: localhost
+          ansible.builtin.find:
+            paths: "{{ working_dir }}"
+            patterns: "*.zip"
+          register: archive_files
+
+        - name: Send execution result by mail
+          delegate_to: localhost
+          community.general.mail:
+            host: "localhost"
+            port: "25"
+            sender: "{{ __mail_from }}"
+            to: "{{ mail_recipient }}"
+            subject: "{{ mail_subject }}"
+            body: "{{ mail_content }}"
+            attach: "{{ archive_files.files | map(attribute='path') | list }}"
+            charset: utf8
+            subtype: html
+          loop: "{{ __mail_to }}"
+          loop_control:
+            loop_var: mail_recipient
+          when: archive_files.matched > 0
+
+        - name: Send execution result by mail without attachment
+          delegate_to: localhost
+          community.general.mail:
+            host: "localhost"
+            port: "25"
+            sender: "{{ __mail_from }}"
+            to: "{{ mail_recipient }}"
+            subject: "{{ mail_subject }}"
+            body: "{{ mail_content }}"
+            charset: utf8
+            subtype: html
+          loop: "{{ __mail_to }}"
+          loop_control:
+            loop_var: mail_recipient
+          when: archive_files.matched == 0
+
+      always:
+        - ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/clean_working_dir.yaml"

@@ -1,7 +1,7 @@
 # roles/common/vars/satellite.yaml
 
 ---
-__satellite_https_url: https://satellite.csv.local/
+__satellite_https_url: https://satellite.csv.local
 __satellite_svc_user: svc-laf-satellite
 __satellite_svc_token: !vault |
           $ANSIBLE_VAULT;1.2;AES256;satellite

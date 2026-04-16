@@ -1,0 +1,45 @@
+---
+- name: "COLLECTING | List hosts from Satellite for location {{ client_id }}"
+  ansible.builtin.uri:
+    url: "{{ __satellite_https_url }}/api/v2/locations/{{ client_id }}/hosts?per_page=9999"
+    method: GET
+    validate_certs: false
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json"
+    user: "{{ __satellite_svc_user }}"
+    password: "{{ __satellite_svc_token }}"
+    force_basic_auth: true
+    status_code: 200
+  register: satellite_hosts_response
+
+- name: Define Satellite hosts list for the location
+  ansible.builtin.set_fact:
+    satellite_location_hosts: "{{ satellite_hosts_response.json.results | default([]) }}"
+    satellite_location_hostnames: "{{ (satellite_hosts_response.json.results | default([])) | map(attribute='name') | map('lower') | list }}"
+
+- name: Define target hosts present in both inventory and Satellite location
+  ansible.builtin.set_fact:
+    selected_hosts: "{{ inventory_target_hosts | intersect(satellite_location_hostnames) | sort }}"
+
+- name: Add location comparison details to mail content
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      <b>Satellite hosts in location:</b> {{ satellite_location_hostnames | length }}<br>
+      <b>Hosts selected after inventory/location intersection:</b> {{ selected_hosts | length }}<br>
+      <br>
+
+- name: Add message when no host matches the location
+  ansible.builtin.set_fact:
+    mail_content: |-
+      {{ mail_content }}
+      No inventory host matched Satellite location {{ client_id }}.<br>
+  when: selected_hosts | length == 0
+
+- name: Export OpenSCAP reports for matched hosts
+  ansible.builtin.include_tasks: per_host.yaml
+  loop: "{{ selected_hosts }}"
+  loop_control:
+    loop_var: current_host
+  when: selected_hosts | length > 0

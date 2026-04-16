@@ -1,0 +1,32 @@
+---
+- name: "Dynamic grouping based on limiter"
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: "Add host to execution group if it matches limiter"
+      ansible.builtin.group_by:
+        key: "execution_group"
+      when: limiter is not defined or limiter == inventory_hostname
+      tags: ["always"]
+
+- name: Playbook for Satellite OpenSCAP reporting
+  hosts: execution_group
+  gather_facts: false
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_satellite/openscap_reporting.yaml -i clients/XXXX/hosts.ini
+# ansible-playbook playbooks/managed_services/redhat_satellite/openscap_reporting.yaml -i clients/XXXX/hosts.ini -e "limiter=sv-xxxxlvuxx.rh.xxxx.local"
+
+  vars:
+    REDHAT_SATELLITE_OPENSCAP_REPORTING: true
+
+  tasks:
+    - name: Run Satellite OpenSCAP reporting once for the execution scope
+      ansible.builtin.include_role:
+        name: common
+      run_once: true
+
+    - name: Run redhat_satellite role once for the execution scope
+      ansible.builtin.include_role:
+        name: redhat_satellite
+      run_once: true

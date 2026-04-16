@@ -1,0 +1,7 @@
+---
+- name: Delete {{ working_dir }}
+  delegate_to: localhost
+  ansible.builtin.file:
+    path: "{{ working_dir }}/"
+    state: absent
+    force: true

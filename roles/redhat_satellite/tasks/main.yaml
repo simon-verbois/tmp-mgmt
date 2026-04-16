@@ -1,0 +1,4 @@
+---
+- name: Include Satellite OpenSCAP reporting tasks
+  ansible.builtin.include_tasks: reporting/main.yaml
+  when: REDHAT_SATELLITE_OPENSCAP_REPORTING | default(false)
