@@ -41,3 +41,7 @@
     - name: "VCENTER | Extension failed or VM not found on {{ current_vcenter.value.url }}"
       ansible.builtin.debug:
         msg: "VM not found on {{ current_vcenter.value.url }} or extension failed. Check error above."
+
+    - name: "VCENTER | Record last extension error"
+      ansible.builtin.set_fact:
+        vcenter_extension_error: "Extension failed on {{ current_vcenter.value.url }}: VM not found or operation rejected."

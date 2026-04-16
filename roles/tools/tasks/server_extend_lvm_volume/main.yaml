@@ -15,6 +15,13 @@
 - name: "Gather LVM topology for {{ target_path }}"
   ansible.builtin.include_tasks: checks/gather_lvm_info.yaml
 
+- name: "Abort execution if LUKS encryption detected"
+  ansible.builtin.fail:
+    msg: "LUKS encryption detected on {{ lvm_info.pv_device }}: automatic extension is not supported for encrypted volumes. Perform the extension manually."
+  when:
+    - not dry_run | bool
+    - lvm_info.is_luks == 'true'
+
 - name: "Calculate vCenter disk extension need"
   ansible.builtin.include_tasks: checks/calculate_vcenter_need.yaml
 
@@ -53,6 +60,16 @@
   vars:
     vcenter_action: "extend_disk"
   when: vcenter_disk_add_gb | int > 0
+
+- name: "Abort if vCenter disk extension failed on all vCenters"
+  ansible.builtin.fail:
+    msg: >-
+      vCenter disk extension was required (+{{ vcenter_disk_add_gb }} GB) but failed on all vCenters.
+      The host LVM extension cannot proceed without the additional disk space.
+      Last error: {{ vcenter_extension_error | default('unknown') }}
+  when:
+    - vcenter_disk_add_gb | int > 0
+    - not vcenter_action_done | bool
 
 - name: "Extend LVM and filesystem"
   ansible.builtin.include_tasks: host/extend_lvm.yaml

@@ -3,8 +3,8 @@
 ---
 - name: "DRY-RUN | Determine feasibility"
   ansible.builtin.set_fact:
-    dry_run_ready: "{{ (vcenter_disk_add_gb | int == 0) or (vcenter_match_error is not defined and datastore_error is not defined) }}"
-    dry_run_block_reason: "{{ vcenter_match_error | default(datastore_error | default('')) }}"
+    dry_run_ready: "{{ lvm_info.is_luks != 'true' and ((vcenter_disk_add_gb | int == 0) or (vcenter_match_error is not defined and datastore_error is not defined)) }}"
+    dry_run_block_reason: "{{ 'LUKS encryption detected: automatic extension is not supported for encrypted volumes.' if lvm_info.is_luks == 'true' else (vcenter_match_error | default(datastore_error | default(''))) }}"
 
 - name: "DRY-RUN | Generate authorization token"
   ansible.builtin.set_fact:
@@ -51,6 +51,7 @@
       {{ "║  %-60s║" | format("VG Free:          " ~ _vg_free_gb ~ " GB") }}
       {{ "║  %-60s║" | format("PV:               " ~ lvm_info.pv_device) }}
       {{ "║  %-60s║" | format("Base Disk:        /dev/" ~ lvm_info.base_disk ~ " (" ~ _disk_size_gb ~ " GB)") }}
+      {{ "║  %-60s║" | format("Encryption:       " ~ ("LUKS ⚠ encrypted — manual extension only" if lvm_info.is_luks == 'true' else "None")) }}
       {{ _border }}
       {{ "║ %-61s║" | format("VCENTER EXTENSION") }}
       {% if not _vcenter_needed | bool %}

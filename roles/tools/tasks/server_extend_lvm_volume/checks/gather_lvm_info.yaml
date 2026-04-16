@@ -36,6 +36,9 @@
       fi
       DISK_SIZE_BYTES=$(lsblk -b -ndo SIZE "/dev/$BASE_DISK" 2>/dev/null | tr -d ' ')
 
+      # Detect LUKS: check if any device in the PV ancestry chain is type 'crypt'
+      IS_LUKS=$(lsblk -nso TYPE "$PV_DEV" 2>/dev/null | grep -q "^crypt$" && echo "true" || echo "false")
+
       cat <<EOF
       {
         "lv_device": "$LV_DEV",
@@ -50,7 +53,8 @@
         "fs_size": "$FS_SIZE",
         "fs_used": "$FS_USED",
         "fs_avail": "$FS_AVAIL",
-        "fs_use_pct": "$FS_USE_PCT"
+        "fs_use_pct": "$FS_USE_PCT",
+        "is_luks": "$IS_LUKS"
       }
       EOF
   become: true
