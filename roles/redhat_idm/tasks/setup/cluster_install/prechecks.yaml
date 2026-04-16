@@ -1,0 +1,41 @@
+---
+- name: Validate IdM cluster inventory structure
+  ansible.builtin.assert:
+    that:
+      - (groups['ipaserver'] | default([])) | length == 1
+      - "'ipaserver' in groups"
+    fail_msg: "The IdM cluster inventory must contain exactly one host in the ipaserver group."
+  run_once: true
+
+- name: Validate supported installation profile
+  ansible.builtin.assert:
+    that:
+      - ipaserver_setup_dns | bool
+      - not (ipaserver_setup_firewalld | default(false) | bool)
+      - ipaserver_domain is defined
+      - ipaserver_domain | length > 0
+      - ipaserver_realm is defined
+      - ipaserver_realm | length > 0
+      - ipaadmin_password is defined
+      - ipaadmin_password | length > 0
+      - ipadm_password is defined
+      - ipadm_password | length > 0
+    fail_msg: "This v1 setup supports only integrated DNS + integrated CA, with firewalld disabled."
+  run_once: true
+
+- name: Validate host FQDN shape
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname is match('^.+\\..+$')
+    fail_msg: "inventory_hostname must be a FQDN for IdM installation."
+
+- name: Check current system hostname
+  ansible.builtin.command: hostname -f
+  register: idm_current_hostname
+  changed_when: false
+
+- name: Validate current system hostname
+  ansible.builtin.assert:
+    that:
+      - idm_current_hostname.stdout is match('^.+\\..+$')
+    fail_msg: "The target system must already expose a FQDN through hostname -f."

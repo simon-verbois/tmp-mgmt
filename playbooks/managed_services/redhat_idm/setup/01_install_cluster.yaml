@@ -1,76 +1,14 @@
 ---
-- name: Install IdM Master
-  hosts: ipaserver
+- name: Install IdM cluster
+  hosts: ipacluster
   become: true
 
 # Usage
 # You must use the utils/redhat_idm_prov.sh to generate initial ipa inventory
 # ansible-playbook playbooks/managed_services/redhat_idm/setup/01_install_cluster.yaml -i clients/XXXX/ipa.ini
 
-  roles:
-    - role: redhat.rhel_idm.ipaserver
-
-  post_tasks:
-    - name: Ensure dnssec-validation is disabled
-      ansible.builtin.lineinfile:
-        path: /etc/named/ipa-options-ext.conf
-        regexp: '^\s*dnssec-validation\s+.*'
-        line: 'dnssec-validation no;'
-        create: yes
-      register: dnssec_config_master
-
-    - name: Ensure allow-recursion allows anyone (any)
-      ansible.builtin.lineinfile:
-        path: /etc/named/ipa-options-ext.conf
-        regexp: '^\s*allow-recursion\s+.*'
-        line: 'allow-recursion { any; };'
-        create: yes
-      register: recursion_config_master
-
-    - name: Restart named service if configuration changed
-      ansible.builtin.systemd:
-        name: named
-        state: restarted
-      when: dnssec_config_master.changed or recursion_config_master.changed
-
-
-- name: Install IdM Replica
-  hosts: ipareplicas
-  become: true
-  pre_tasks:
-    - name: Set temporary permissive umask for installation
-      shell: |
-        sed -i 's/umask 077/umask 022/g' /etc/profile /etc/bashrc
-        sed -i 's/^UMASK.*/UMASK 022/' /etc/login.defs
-    - meta: reset_connection
+  vars:
+    REDHAT_IDM_CLUSTER_INSTALL: true
 
   roles:
-    - role: redhat.rhel_idm.ipareplica
-
-  post_tasks:
-    - name: Restore original umask settings
-      shell: |
-        sed -i 's/umask 022/umask 077/g' /etc/profile /etc/bashrc
-        sed -i 's/^UMASK.*/UMASK 077/' /etc/login.defs
-
-    - name: Ensure dnssec-validation is disabled
-      ansible.builtin.lineinfile:
-        path: /etc/named/ipa-options-ext.conf
-        regexp: '^\s*dnssec-validation\s+.*'
-        line: 'dnssec-validation no;'
-        create: yes
-      register: dnssec_config
-
-    - name: Ensure allow-recursion allows anyone (any)
-      ansible.builtin.lineinfile:
-        path: /etc/named/ipa-options-ext.conf
-        regexp: '^\s*allow-recursion\s+.*'
-        line: 'allow-recursion { any; };'
-        create: yes
-      register: recursion_config
-
-    - name: Restart named service if configuration changed
-      ansible.builtin.systemd:
-        name: named
-        state: restarted
-      when: dnssec_config.changed or recursion_config.changed
+    - redhat_idm

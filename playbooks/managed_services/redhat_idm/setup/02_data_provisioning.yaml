@@ -1,0 +1,13 @@
+---
+- name: Playbook for IPA Data provisioning
+  hosts: ipaserver
+
+# Usage
+# ansible-playbook playbooks/managed_services/redhat_idm/setup/02_data_provisioning.yaml -i clients/XXXX/ipa.ini
+
+  vars:
+    REDHAT_IDM_DATA_PROVISIONING: true
+
+  roles:
+    - common
+    - redhat_idm

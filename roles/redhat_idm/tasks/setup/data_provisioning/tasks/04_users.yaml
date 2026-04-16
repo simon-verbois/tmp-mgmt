@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/setup/tasks/04_users.yaml
+# roles/redhat_idm/tasks/setup/data_provisioning/tasks/04_users.yaml
 
 ---
 - name: Filter Human Users from deep_data

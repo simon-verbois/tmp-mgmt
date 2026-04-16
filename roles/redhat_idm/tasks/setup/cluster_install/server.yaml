@@ -1,0 +1,46 @@
+---
+- name: Check whether IdM server is already installed
+  ansible.builtin.stat:
+    path: /etc/ipa/default.conf
+  register: idm_server_install_stat
+
+- name: Install IdM server with integrated DNS and integrated CA
+  ansible.builtin.shell: |
+    ipa-server-install --unattended \
+      --hostname {{ inventory_hostname | quote }} \
+      --domain {{ ipaserver_domain | quote }} \
+      --realm {{ ipaserver_realm | quote }} \
+      --ds-password {{ ipadm_password | quote }} \
+      --admin-password {{ ipaadmin_password | quote }} \
+      {% if ipaserver_no_hbac_allow | default(false) | bool -%}
+      --no-hbac-allow \
+      {% endif -%}
+      {% if ipaserver_random_serial_numbers | default(false) | bool -%}
+      --random-serial-numbers \
+      {% endif -%}
+      --setup-dns \
+      {% if (ipaserver_forwarders | default([]) | length) > 0 -%}
+      {% for forwarder in ipaserver_forwarders | default([]) -%}
+      --forwarder {{ forwarder | quote }} \
+      {% endfor -%}
+      {% else -%}
+      --no-forwarders \
+      {% endif -%}
+      {% if ipaserver_forward_policy is defined and ipaserver_forward_policy | length > 0 -%}
+      --forward-policy={{ ipaserver_forward_policy | quote }} \
+      {% endif -%}
+      {% if ipaserver_no_dnssec_validation | default(false) | bool -%}
+      --no-dnssec-validation \
+      {% endif -%}
+      ;
+  args:
+    executable: /bin/bash
+  no_log: true
+  register: idm_server_install_result
+  changed_when: true
+  when: not idm_server_install_stat.stat.exists
+
+- name: Show IdM server install log path hint
+  ansible.builtin.debug:
+    msg: "If the IdM server installation fails, review /var/log/ipaserver-install.log."
+  when: not idm_server_install_stat.stat.exists

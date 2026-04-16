@@ -8,3 +8,9 @@ __target_environment: ""
 
 # Var to override the zip encryption password
 __use_internal_communication_password: false
+
+# IdM setup / cluster installation
+ipaadmin_principal: admin
+redhat_idm_install_packages: true
+redhat_idm_skip_prechecks: false
+redhat_idm_disable_firewalld: true

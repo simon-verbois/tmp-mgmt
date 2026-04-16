@@ -1,9 +1,13 @@
 # roles/redhat_idm/tasks/main.yaml
 
 ---
-- name: Include IPA setup tasks
-  ansible.builtin.include_tasks: setup/main.yaml
-  when: REDHAT_IDM_INIT | default(false)
+- name: Include IPA cluster installation tasks
+  ansible.builtin.include_tasks: setup/cluster_install/main.yaml
+  when: REDHAT_IDM_CLUSTER_INSTALL | default(false)
+
+- name: Include IPA data provisioning tasks
+  ansible.builtin.include_tasks: setup/data_provisioning/main.yaml
+  when: REDHAT_IDM_DATA_PROVISIONING | default(false)
 
 - name: Include IPA management tasks
   ansible.builtin.include_tasks: manage/main.yaml

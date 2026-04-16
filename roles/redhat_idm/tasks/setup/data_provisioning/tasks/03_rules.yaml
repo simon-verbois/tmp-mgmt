@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/setup/tasks/03_rules.yaml
+# roles/redhat_idm/tasks/setup/data_provisioning/tasks/03_rules.yaml
 
 ---
 - name: Configure HBAC Rules

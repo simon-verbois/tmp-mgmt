@@ -1,0 +1,46 @@
+---
+- name: Check whether IdM replica is already installed
+  ansible.builtin.stat:
+    path: /etc/ipa/default.conf
+  register: idm_replica_install_stat
+
+- name: Define primary IdM server
+  ansible.builtin.set_fact:
+    idm_primary_server: "{{ groups['ipaserver'][0] }}"
+
+- name: Install IdM replica with integrated DNS and CA
+  ansible.builtin.shell: |
+    ipa-replica-install --unattended \
+      --hostname {{ inventory_hostname | quote }} \
+      --server {{ idm_primary_server | quote }} \
+      --domain {{ ipaserver_domain | quote }} \
+      --realm {{ ipaserver_realm | quote }} \
+      --principal {{ ipaadmin_principal | quote }} \
+      --admin-password {{ ipaadmin_password | quote }} \
+      --setup-ca \
+      --setup-dns \
+      {% if (ipaserver_forwarders | default([]) | length) > 0 -%}
+      {% for forwarder in ipaserver_forwarders | default([]) -%}
+      --forwarder {{ forwarder | quote }} \
+      {% endfor -%}
+      {% else -%}
+      --no-forwarders \
+      {% endif -%}
+      {% if ipaserver_forward_policy is defined and ipaserver_forward_policy | length > 0 -%}
+      --forward-policy={{ ipaserver_forward_policy | quote }} \
+      {% endif -%}
+      {% if ipaserver_no_dnssec_validation | default(false) | bool -%}
+      --no-dnssec-validation \
+      {% endif -%}
+      ;
+  args:
+    executable: /bin/bash
+  no_log: true
+  register: idm_replica_install_result
+  changed_when: true
+  when: not idm_replica_install_stat.stat.exists
+
+- name: Show IdM replica install log path hint
+  ansible.builtin.debug:
+    msg: "If the IdM replica installation fails, review the ipa-replica-install logs under /var/log/."
+  when: not idm_replica_install_stat.stat.exists

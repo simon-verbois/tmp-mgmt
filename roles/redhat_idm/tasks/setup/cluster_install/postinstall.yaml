@@ -1,0 +1,22 @@
+---
+- name: Ensure dnssec-validation is disabled
+  ansible.builtin.lineinfile:
+    path: /etc/named/ipa-options-ext.conf
+    regexp: '^\s*dnssec-validation\s+.*'
+    line: 'dnssec-validation no;'
+    create: true
+  register: idm_dnssec_config
+
+- name: Ensure allow-recursion allows anyone
+  ansible.builtin.lineinfile:
+    path: /etc/named/ipa-options-ext.conf
+    regexp: '^\s*allow-recursion\s+.*'
+    line: 'allow-recursion { any; };'
+    create: true
+  register: idm_recursion_config
+
+- name: Restart named service if configuration changed
+  ansible.builtin.systemd:
+    name: named
+    state: restarted
+  when: idm_dnssec_config.changed or idm_recursion_config.changed

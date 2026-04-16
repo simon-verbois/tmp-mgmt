@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/setup/tasks/01_groups.yaml
+# roles/redhat_idm/tasks/setup/data_provisioning/tasks/01_groups.yaml
 
 ---
 - name: Ensure User Groups exist

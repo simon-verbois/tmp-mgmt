@@ -1,4 +1,4 @@
-# roles/redhat_idm/tasks/setup/tasks/02_pw_policies.yaml
+# roles/redhat_idm/tasks/setup/data_provisioning/tasks/02_pw_policies.yaml
 
 ---
 - name: Set Password Policies

@@ -1,0 +1,40 @@
+---
+- name: Include prechecks
+  ansible.builtin.include_tasks: prechecks.yaml
+  when: not redhat_idm_skip_prechecks | bool
+
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Ensure firewalld is stopped and disabled
+  ansible.builtin.systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when:
+    - redhat_idm_disable_firewalld | bool
+    - "'firewalld.service' in ansible_facts.services"
+
+- name: Install packages required for IdM cluster installation
+  ansible.builtin.package:
+    name: "{{ redhat_idm_required_packages }}"
+    state: present
+  vars:
+    redhat_idm_required_packages: >-
+      {{
+        ['ipa-server']
+        + (['ipa-server-dns'] if ipaserver_setup_dns | bool else [])
+      }}
+  when: redhat_idm_install_packages | bool
+
+- name: Install IdM master
+  ansible.builtin.include_tasks: server.yaml
+  when: "'ipaserver' in group_names"
+
+- name: Install IdM replica
+  ansible.builtin.include_tasks: replica.yaml
+  when: "'ipareplicas' in group_names"
+
+- name: Include post-install tasks
+  ansible.builtin.include_tasks: postinstall.yaml
+  when: ipaserver_setup_dns | bool

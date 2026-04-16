@@ -8,7 +8,8 @@ The role is driven by variables passed at runtime. The `tasks/main.yaml` entrypo
 
 | Variable | Module | Description |
 |---|---|---|
-| `REDHAT_IDM_INIT: true` | `tasks/setup/` | Initial cluster provisioning (groups, policies, rules, users) |
+| `REDHAT_IDM_CLUSTER_INSTALL: true` | `tasks/setup/cluster_install/` | IdM server and replica installation without the Red Hat collection roles |
+| `REDHAT_IDM_DATA_PROVISIONING: true` | `tasks/setup/data_provisioning/` | Initial groups, policies, rules, users and exports |
 | `REDHAT_IDM_MANAGING: true` | `tasks/manage/` | User lifecycle operations |
 | `REDHAT_IDM_REPORTING: true` | `tasks/reporting/` | Full XLSX report generation |
 
@@ -157,11 +158,11 @@ ansible-playbook playbooks/managed_services/redhat_idm/reporting.yaml \
 ```bash
 # 1. Install FreeIPA server and replicas
 ansible-playbook playbooks/managed_services/redhat_idm/setup/01_install_cluster.yaml \
-  -i clients/XXXX/hosts.ini
+  -i clients/XXXX/ipa.ini
 
 # 2. Provision initial groups, policies, rules and users
-ansible-playbook playbooks/managed_services/redhat_idm/setup/02_add_initial_data.yaml \
-  -e "__clients_id_prompted='XXXX'" --vault-id ipa
+ansible-playbook playbooks/managed_services/redhat_idm/setup/02_data_provisioning.yaml \
+  -i clients/XXXX/ipa.ini
 ```
 
 ---
@@ -174,6 +175,10 @@ ansible-playbook playbooks/managed_services/redhat_idm/setup/02_add_initial_data
 | `__clients_id_excluded_prompted` | `""` | Client IDs to exclude, separated by `;` |
 | `__target_environment` | `""` | Filter by environment (`prd`, `managed`, `ebrc`, …) |
 | `__use_internal_communication_password` | `false` | Force use of the `2000` CommCli password for ZIP encryption |
+| `ipaadmin_principal` | `admin` | Admin principal used by `ipa-replica-install` |
+| `redhat_idm_install_packages` | `true` | Install IdM packages before cluster installation |
+| `redhat_idm_skip_prechecks` | `false` | Skip cluster installation prechecks |
+| `redhat_idm_disable_firewalld` | `true` | Force `firewalld` to be stopped and disabled on IdM nodes |
 | `usernames` | *(required)* | Username(s) to act on, separated by `;` |
 | `user_firstname` | *(required for creation)* | First name (single-user creation) |
 | `user_lastname` | *(required for creation)* | Last name (single-user creation) |
