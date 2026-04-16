@@ -6,24 +6,10 @@
     report_html_dest: "{{ working_dir }}/{{ client_id }}_{{ current_host | regex_replace('[^0-9A-Za-z._-]', '_') }}_{{ current_report.id }}_{{ current_report.created_at | default(report_timestamp) | regex_replace('[^0-9A-Za-z._-]', '_') }}.html"
 
 - block:
-    - name: "DOWNLOAD | Save raw ARF report for {{ current_host }} / {{ report_id }}"
+    - name: "DOWNLOAD | Query full HTML rendering for {{ current_host }} / {{ report_id }} via download_html"
       delegate_to: localhost
       ansible.builtin.uri:
-        url: "{{ __satellite_https_url }}/api/v2/compliance/arf_reports/{{ report_id }}/download"
-        method: GET
-        validate_certs: false
-        headers:
-          Accept: "application/xml"
-        user: "{{ __satellite_svc_user }}"
-        password: "{{ __satellite_svc_token }}"
-        force_basic_auth: true
-        status_code: 200
-        dest: "{{ report_xml_dest }}"
-
-    - name: "DOWNLOAD | Query HTML rendering for {{ current_host }} / {{ report_id }}"
-      delegate_to: localhost
-      ansible.builtin.uri:
-        url: "{{ __satellite_https_url }}/api/v2/compliance/arf_reports/{{ report_id }}/html"
+        url: "{{ __satellite_https_url }}/api/compliance/arf_reports/{{ report_id }}/download_html"
         method: GET
         validate_certs: false
         headers:
@@ -33,15 +19,128 @@
         force_basic_auth: true
         status_code: [200, 404]
         return_content: true
-      register: report_html_response
+        timeout: "{{ __satellite_report_download_timeout | int }}"
+      register: report_html_primary_response
+      failed_when: false
+      when: __satellite_prefer_satellite_html | bool
+
+    - name: "DOWNLOAD | Query full HTML rendering for {{ current_host }} / {{ report_id }} via download-html"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ __satellite_https_url }}/api/compliance/arf_reports/{{ report_id }}/download-html"
+        method: GET
+        validate_certs: false
+        headers:
+          Accept: "text/html"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: true
+        status_code: [200, 404]
+        return_content: true
+        timeout: "{{ __satellite_report_download_timeout | int }}"
+      register: report_html_secondary_response
+      failed_when: false
+      when:
+        - __satellite_prefer_satellite_html | bool
+        - report_html_primary_response is not defined or report_html_primary_response.status | default(0) != 200
+
+    - name: "DOWNLOAD | Query full HTML rendering for {{ current_host }} / {{ report_id }} via html"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ __satellite_https_url }}/api/compliance/arf_reports/{{ report_id }}/html"
+        method: GET
+        validate_certs: false
+        headers:
+          Accept: "text/html"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: true
+        status_code: [200, 404]
+        return_content: true
+        timeout: "{{ __satellite_report_download_timeout | int }}"
+      register: report_html_legacy_response
+      failed_when: false
+      when:
+        - __satellite_prefer_satellite_html | bool
+        - (report_html_primary_response is not defined or report_html_primary_response.status | default(0) != 200)
+        - (report_html_secondary_response is not defined or report_html_secondary_response.status | default(0) != 200)
+
+    - name: Define selected HTML response
+      ansible.builtin.set_fact:
+        selected_html_response: >-
+          {{
+            report_html_primary_response
+            if (
+              report_html_primary_response is defined and
+              report_html_primary_response.status == 200 and
+              (report_html_primary_response.content | default('') | length > 0)
+            )
+            else
+            (
+              report_html_secondary_response
+              if (
+                report_html_secondary_response is defined and
+                report_html_secondary_response.status == 200 and
+                (report_html_secondary_response.content | default('') | length > 0)
+              )
+              else
+              (
+                report_html_legacy_response
+                if (
+                  report_html_legacy_response is defined and
+                  report_html_legacy_response.status == 200 and
+                  (report_html_legacy_response.content | default('') | length > 0)
+                )
+                else {}
+              )
+            )
+          }}
 
     - name: "DOWNLOAD | Save HTML rendering for {{ current_host }} / {{ report_id }}"
       delegate_to: localhost
       ansible.builtin.copy:
-        content: "{{ report_html_response.content }}"
+        content: "{{ selected_html_response.content }}"
         dest: "{{ report_html_dest }}"
         mode: "0644"
-      when: report_html_response.status == 200
+      when:
+        - selected_html_response is defined
+        - selected_html_response.status is defined
+        - selected_html_response.status == 200
+        - selected_html_response.content is defined
+        - selected_html_response.content | length > 0
+
+    - name: "DOWNLOAD | Save raw ARF report for {{ current_host }} / {{ report_id }}"
+      delegate_to: localhost
+      ansible.builtin.uri:
+        url: "{{ __satellite_https_url }}/api/compliance/arf_reports/{{ report_id }}/download"
+        method: GET
+        validate_certs: false
+        headers:
+          Accept: "application/xml"
+        user: "{{ __satellite_svc_user }}"
+        password: "{{ __satellite_svc_token }}"
+        force_basic_auth: true
+        status_code: 200
+        dest: "{{ report_xml_dest }}"
+        timeout: "{{ __satellite_report_download_timeout | int }}"
+      when: __satellite_attach_raw_arf | bool
+
+    - name: Add HTML/fallback result to mail content
+      ansible.builtin.set_fact:
+        mail_content: |-
+          {{ mail_content }}
+          {% if selected_html_response is defined and selected_html_response.status | default(0) == 200 and (__satellite_attach_raw_arf | bool) %}
+          Report {{ report_id }} for host {{ current_host }} exported as full HTML and raw ARF.<br>
+          {% elif selected_html_response is defined and selected_html_response.status | default(0) == 200 %}
+          Report {{ report_id }} for host {{ current_host }} exported as full HTML.<br>
+          {% elif __satellite_attach_raw_arf | bool %}
+          Report {{ report_id }} for host {{ current_host }} exported as raw ARF fallback only.<br>
+          {% else %}
+          Failed to export a full HTML report for host {{ current_host }} (report {{ report_id }}). Last statuses:
+          download_html={{ report_html_primary_response.status | default('n/a') }},
+          download-html={{ report_html_secondary_response.status | default('n/a') }},
+          html={{ report_html_legacy_response.status | default('n/a') }}.<br>
+          {% endif %}
 
   rescue:
     - name: Add report download error to mail content

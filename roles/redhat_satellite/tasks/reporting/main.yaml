@@ -61,6 +61,8 @@
           {{ mail_content }}
           <b>Client ID / Satellite location:</b> {{ client_id }}<br>
           <b>Inventory hosts count:</b> {{ inventory_target_hosts | length }}<br>
+          <b>Preferred output:</b> Full HTML report from Satellite<br>
+          <b>Attach raw ARF:</b> {{ __satellite_attach_raw_arf | bool }}<br>
           <br>
 
     - name: Fetch and export OpenSCAP reports from Satellite
@@ -81,11 +83,28 @@
           ansible.builtin.find:
             paths: "{{ working_dir }}"
             patterns:
-              - "*.xml"
               - "*.html"
               - "*.bz2"
             use_regex: false
           register: found_report_files
+
+        - name: Find generated HTML reports
+          delegate_to: localhost
+          ansible.builtin.find:
+            paths: "{{ working_dir }}"
+            patterns:
+              - "*.html"
+            use_regex: false
+          register: found_html_reports
+
+        - name: Find raw ARF reports kept in archive
+          delegate_to: localhost
+          ansible.builtin.find:
+            paths: "{{ working_dir }}"
+            patterns:
+              - "*.bz2"
+            use_regex: false
+          register: found_raw_reports
 
         - name: Add no-report message to mail content
           ansible.builtin.set_fact:
@@ -93,6 +112,15 @@
               {{ mail_content }}
               No OpenSCAP report file was collected for client {{ client_id }}.<br>
           when: found_report_files.matched == 0
+
+        - name: Add final artifact summary to mail content
+          ansible.builtin.set_fact:
+            mail_content: |-
+              {{ mail_content }}
+              <b>HTML reports generated:</b> {{ found_html_reports.matched }}<br>
+              <b>Raw ARF reports attached:</b> {{ found_raw_reports.matched }}<br>
+              <br>
+          when: found_report_files.matched > 0
 
         - name: Encrypt reports if any file was collected
           ansible.builtin.include_tasks: "{{ role_path }}/tasks/utils/encrypt_files.yaml"
